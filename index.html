@@ -1299,21 +1299,24 @@
     // ── Sum Check ────────────────────────────────────────────────
     window.checkSum = function(){
       if(!selectedPlayers.length) return;
-      let sum=0, allFilled=true;
+      let win=0, lose=0, allFilled=true;
       selectedPlayers.forEach((_,i)=>{
         const v=parseFloat(document.getElementById('amt-'+i)?.value||'');
-        if(isNaN(v)) allFilled=false; else sum+=v;
+        if(isNaN(v)) allFilled=false;
+        else if(v>0) win+=v;
+        else lose+=Math.abs(v);
       });
       const dealerAmt=parseFloat(document.getElementById('r-dealer-amt')?.value||'0')||0;
       const payer=document.getElementById('r-dealer-payer')?.value||'';
       const el=document.getElementById('sum-status');
       if(!allFilled){ el.innerHTML=''; return; }
-      const total=Math.round(sum*100)/100;
+      // 正確邏輯：輸方合計 = 贏方合計 + 莊錢
+      const diff=Math.round((lose - win - dealerAmt)*100)/100;
       let html='';
-      if(Math.abs(total)<0.01){
-        html=`<div class="status status-ok">✅ 金額正確，加總為 $0</div>`;
+      if(Math.abs(diff)<0.01){
+        html=`<div class="status status-ok">✅ 金額正確（輸 $${lose} = 贏 $${win} + 莊錢 $${dealerAmt}）</div>`;
       } else {
-        html=`<div class="status status-err">⚠️ 金額不平衡，差額 $${total}（所有人輸贏加總應為 0）</div>`;
+        html=`<div class="status status-err">⚠️ 金額不平衡，差額 $${Math.abs(diff)}（輸方應等於贏方 + 莊錢）</div>`;
       }
       if(payer && dealerAmt>0){
         html+=`<div class="status status-info">💰 ${payer} 當天現金付了莊錢 $${dealerAmt}，月結時將自動退回</div>`;
@@ -1338,9 +1341,12 @@
         entries[name]=v; sum+=v;
       });
       if(!ok){ toast('請填寫所有玩家的輸贏金額'); return; }
-      const total=Math.round(sum*100)/100;
-      if(Math.abs(total)>0.01){
-        if(!confirm(`金額不平衡（差額 $${total}），確定要儲存嗎？`)) return;
+      // 正確邏輯：輸方合計 = 贏方合計 + 莊錢
+      let win=0, lose=0;
+      Object.values(entries).forEach(v=>{ if(v>0) win+=v; else lose+=Math.abs(v); });
+      const diff=Math.round((lose - win - dealerAmt)*100)/100;
+      if(Math.abs(diff)>0.01){
+        if(!confirm(`金額不平衡（差額 $${Math.abs(diff)}），確定要儲存嗎？`)) return;
       }
       await dbPush('records', {date,place,rounds,entries,dealer:{amount:dealerAmt,payer:dealerPayer},createdAt:Date.now()});
       toast('🎉 已儲存！');
