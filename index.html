@@ -147,7 +147,7 @@
       /* Pages */
       .page {
         display: none;
-        padding: 1.25rem 1rem 6rem;
+        padding: 1.25rem 1rem 8rem;
         max-width: 640px;
         margin: 0 auto;
         animation: fadeUp 0.25s ease;
@@ -380,7 +380,8 @@
         font-size: 15px;
         font-weight: 700;
         text-align: right;
-        max-width: 130px;
+        width: 90px;
+        min-width: 0;
       }
       .player-card input:focus {
         outline: none;
@@ -388,6 +389,26 @@
         border: none;
         background: none;
       }
+      .wl-toggle {
+        display: flex;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 2px solid var(--border);
+        flex-shrink: 0;
+      }
+      .wl-btn {
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        border: none;
+        background: #f5f5f3;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all .15s;
+        color: var(--text-muted);
+      }
+      .wl-btn.win-on  { background: #eafaf1; color: var(--green-dark); }
+      .wl-btn.lose-on { background: #fdf0f0; color: var(--red-dark); }
 
       /* Dealer-paid badge on player card */
       .dealer-paid-tag {
@@ -1262,32 +1283,55 @@
 
     window.togglePlayer = function(name){
       const idx=selectedPlayers.indexOf(name);
-      if(idx>=0) selectedPlayers.splice(idx,1);
+      if(idx>=0){ selectedPlayers.splice(idx,1); delete wlState[name]; }
       else selectedPlayers.push(name);
       renderPicker();
-      // 同步更新莊錢付款人下拉
       refreshSelects();
     };
+
+    // wlState: 每個玩家的贏輸狀態，'w'=贏, 'l'=輸, ''=未選
+    let wlState = {};
 
     function renderEntries(){
       const sec=document.getElementById('entries-section');
       const el=document.getElementById('player-entries');
-      if(!selectedPlayers.length){
-        sec.style.display='none';
-        return;
-      }
+      if(!selectedPlayers.length){ sec.style.display='none'; return; }
       sec.style.display='block';
+      // 保留已輸入的數值
+      const prevVals={};
+      selectedPlayers.forEach((_,i)=>{
+        const inp=document.getElementById('amt-'+i);
+        if(inp) prevVals[i]=inp.value;
+      });
       el.innerHTML=selectedPlayers.map((name,i)=>{
         const pi=state.players.findIndex(p=>p.name===name);
         const colorIdx=pi>=0?pi:i;
+        const wl=wlState[name]||'';
+        const winOn=wl==='w'?'win-on':'';
+        const loseOn=wl==='l'?'lose-on':'';
+        const ph=wl===''?'金額':wl==='w'?'贏多少':'輸多少';
         return `<div class="player-card">
           <div class="player-avatar ${av(colorIdx)}">${name.charAt(0)}</div>
           <span class="player-name-label">${name}</span>
-          <input type="text" inputmode="decimal" id="amt-${i}" placeholder="輸入金額（-代表輸）" oninput="checkSum()" style="max-width:160px;text-align:right;border:none;background:none;font-size:15px;font-weight:700;padding:0;font-family:inherit">
+          <div class="wl-toggle">
+            <button class="wl-btn ${winOn}" onclick="setWL('${name}','w')" type="button">贏</button>
+            <button class="wl-btn ${loseOn}" onclick="setWL('${name}','l')" type="button">輸</button>
+          </div>
+          <input type="text" inputmode="numeric" id="amt-${i}" placeholder="${ph}"
+            oninput="checkSum()" value="${prevVals[i]||''}"
+            ${wl===''?'disabled':''}>
         </div>`;
       }).join('');
       checkSum();
     }
+
+    window.setWL = function(name, wl){
+      wlState[name]=wl;
+      renderEntries();
+      // focus 該人的輸入框
+      const i=selectedPlayers.indexOf(name);
+      if(i>=0) setTimeout(()=>document.getElementById('amt-'+i)?.focus(),50);
+    };
 
     window.addPlayer = async function(){
       const inp=document.getElementById('new-player-name');
@@ -1308,11 +1352,12 @@
     window.checkSum = function(){
       if(!selectedPlayers.length) return;
       let win=0, lose=0, allFilled=true;
-      selectedPlayers.forEach((_,i)=>{
-        const raw=(document.getElementById('amt-'+i)?.value||'').trim(); const v=parseFloat(raw);
-        if(isNaN(v)) allFilled=false;
-        else if(v>0) win+=v;
-        else lose+=Math.abs(v);
+      selectedPlayers.forEach((name,i)=>{
+        const raw=(document.getElementById('amt-'+i)?.value||'').trim();
+        const v=parseFloat(raw);
+        const wl=wlState[name]||'';
+        if(wl===''||isNaN(v)||v<=0) { allFilled=false; return; }
+        if(wl==='w') win+=v; else lose+=v;
       });
       const dealerAmt=parseFloat(document.getElementById('r-dealer-amt')?.value||'0')||0;
       const payer=document.getElementById('r-dealer-payer')?.value||'';
@@ -1342,16 +1387,19 @@
       if(!date){ toast('請填寫日期'); return; }
       if(!place){ toast('請填寫地點'); return; }
       if(!selectedPlayers.length){ toast('請先選擇本局參與成員'); return; }
-      let entries={}, sum=0, ok=true;
-      selectedPlayers.forEach((name,i)=>{
-        const raw=(document.getElementById('amt-'+i)?.value||'').trim(); const v=parseFloat(raw);
-        if(isNaN(v)){ ok=false; return; }
-        entries[name]=v; sum+=v;
-      });
-      if(!ok){ toast('請填寫所有玩家的輸贏金額'); return; }
-      // 正確邏輯：輸方合計 = 贏方合計 + 莊錢
+      let entries={}, ok=true;
       let win=0, lose=0;
-      Object.values(entries).forEach(v=>{ if(v>0) win+=v; else lose+=Math.abs(v); });
+      selectedPlayers.forEach((name,i)=>{
+        const raw=(document.getElementById('amt-'+i)?.value||'').trim();
+        const v=parseFloat(raw);
+        const wl=wlState[name]||'';
+        if(wl===''||isNaN(v)||v<=0){ ok=false; return; }
+        const signed = wl==='w' ? v : -v;
+        entries[name]=signed;
+        if(wl==='w') win+=v; else lose+=v;
+      });
+      if(!ok){ toast('請為每位玩家選擇贏/輸並填寫金額'); return; }
+      // 正確邏輯：輸方合計 = 贏方合計 + 莊錢
       const diff=Math.round((lose - win - dealerAmt)*100)/100;
       if(Math.abs(diff)>0.01){
         if(!confirm(`金額不平衡（差額 $${Math.abs(diff)}），確定要儲存嗎？`)) return;
@@ -1363,6 +1411,7 @@
       document.getElementById('r-dealer-amt').value='';
       document.getElementById('r-dealer-payer').value='';
       selectedPlayers=[];
+      wlState={};
       renderPicker();
     };
 
