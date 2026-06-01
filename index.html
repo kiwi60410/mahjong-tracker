@@ -982,17 +982,18 @@
         </div>
       </div>
 
-      <div class="sec-title">💸 玩家輸贏金額</div>
-      <div class="hint" style="margin-bottom: 10px; margin-top: -4px">
-        ⚠️ ⚠️ 此欄只填打牌的輸贏，莊錢由系統自動處理
+      <div class="sec-title">👥 選擇本局參與成員</div>
+      <div class="hint" style="margin-bottom:10px;margin-top:-4px">點選要參與本局的成員</div>
+      <div id="player-picker">
+        <div class="loading"><div class="spinner"></div>載入成員中…</div>
       </div>
-      <div id="player-entries">
-        <div class="loading">
-          <div class="spinner"></div>
-          載入成員中…
-        </div>
+
+      <div id="entries-section" style="display:none">
+        <div class="sec-title" style="margin-top:1rem">💸 輸贏金額</div>
+        <div class="hint" style="margin-bottom:10px;margin-top:-4px">⚠️ 此欄只填打牌的輸贏，莊錢由系統自動處理</div>
+        <div id="player-entries"></div>
+        <div id="sum-status"></div>
       </div>
-      <div id="sum-status"></div>
 
       <div style="height: 80px"></div>
       <div class="action-bar">
@@ -1145,12 +1146,13 @@
 
     // ── State ─────────────────────────────────────────────────────
     let state = { players: [], records: [] };
+    let selectedPlayers = []; // 本局選中的參與者
 
     function initDB() {
       document.getElementById('sync-indicator').style.opacity = '1';
       dbListen('players', data => {
         state.players = data ? Object.entries(data).map(([id,v])=>( {id,...v})) : [];
-        renderPlayers(); renderEntries(); refreshSelects();
+        renderPlayers(); renderPicker(); refreshSelects();
       });
       dbListen('records', data => {
         state.records = data
@@ -1161,7 +1163,7 @@
       });
     }
 
-    function renderAll(){ renderPlayers(); renderEntries(); renderHistory(); refreshSelects(); }
+    function renderAll(){ renderPlayers(); renderPicker(); renderHistory(); refreshSelects(); }
 
     // ── Navigation ───────────────────────────────────────────────
     window.switchPage = function(p) {
@@ -1183,9 +1185,10 @@
 
     // ── Selects ──────────────────────────────────────────────────
     function refreshSelects(){
+      const list=selectedPlayers.length>0?selectedPlayers:state.players.map(p=>p.name);
       document.getElementById('r-dealer-payer').innerHTML =
         `<option value="">— 無 / 之後補 —</option>` +
-        state.players.map(p=>`<option value="${p.name}">${p.name}</option>`).join('');
+        list.map(name=>`<option value="${name}">${name}</option>`).join('');
     }
 
     // ── Players ──────────────────────────────────────────────────
@@ -1200,18 +1203,54 @@
         </span>`).join('');
     }
 
-    function renderEntries(){
-      const el=document.getElementById('player-entries');
+    function renderPicker(){
+      const el=document.getElementById('player-picker');
       if(!state.players.length){
         el.innerHTML='<div class="empty"><span class="empty-icon">👥</span><p>請先在「成員」頁面新增玩家</p></div>';
+        document.getElementById('entries-section').style.display='none';
         return;
       }
-      el.innerHTML=state.players.map((p,i)=>`
-        <div class="player-card">
-          <div class="player-avatar ${av(i)}">${p.name.charAt(0)}</div>
-          <span class="player-name-label">${p.name}</span>
+      el.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">`+
+        state.players.map((p,i)=>{
+          const sel=selectedPlayers.includes(p.name);
+          return `<button onclick="togglePlayer('${p.name}')" style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:2px solid ${sel?'var(--green)':'var(--border)'};background:${sel?'#eafaf1':'#fff'};cursor:pointer;font-size:14px;font-weight:700;font-family:inherit;transition:all .15s">
+            <span class="${av(i)}" style="width:24px;height:24px;font-size:11px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800">${p.name.charAt(0)}</span>
+            ${p.name}
+            ${sel?'<span style="color:var(--green);font-size:16px">✓</span>':''}
+          </button>`;
+        }).join('')+`</div>`;
+      if(selectedPlayers.length>0){
+        el.innerHTML+=`<div style="margin-top:8px;font-size:12px;color:var(--text-muted)">已選 ${selectedPlayers.length} 人：${selectedPlayers.join('、')}</div>`;
+      }
+      renderEntries();
+    }
+
+    window.togglePlayer = function(name){
+      const idx=selectedPlayers.indexOf(name);
+      if(idx>=0) selectedPlayers.splice(idx,1);
+      else selectedPlayers.push(name);
+      renderPicker();
+      // 同步更新莊錢付款人下拉
+      refreshSelects();
+    };
+
+    function renderEntries(){
+      const sec=document.getElementById('entries-section');
+      const el=document.getElementById('player-entries');
+      if(!selectedPlayers.length){
+        sec.style.display='none';
+        return;
+      }
+      sec.style.display='block';
+      el.innerHTML=selectedPlayers.map((name,i)=>{
+        const pi=state.players.findIndex(p=>p.name===name);
+        const colorIdx=pi>=0?pi:i;
+        return `<div class="player-card">
+          <div class="player-avatar ${av(colorIdx)}">${name.charAt(0)}</div>
+          <span class="player-name-label">${name}</span>
           <input type="number" id="amt-${i}" placeholder="± 金額" step="50" oninput="checkSum()" inputmode="numeric">
-        </div>`).join('');
+        </div>`;
+      }).join('');
       checkSum();
     }
 
@@ -1232,9 +1271,9 @@
 
     // ── Sum Check ────────────────────────────────────────────────
     window.checkSum = function(){
-      if(!state.players.length) return;
+      if(!selectedPlayers.length) return;
       let sum=0, allFilled=true;
-      state.players.forEach((_,i)=>{
+      selectedPlayers.forEach((_,i)=>{
         const v=parseFloat(document.getElementById('amt-'+i)?.value||'');
         if(isNaN(v)) allFilled=false; else sum+=v;
       });
@@ -1264,12 +1303,12 @@
       const dealerPayer=document.getElementById('r-dealer-payer').value;
       if(!date){ toast('請填寫日期'); return; }
       if(!place){ toast('請填寫地點'); return; }
-      if(!state.players.length){ toast('請先新增成員'); return; }
+      if(!selectedPlayers.length){ toast('請先選擇本局參與成員'); return; }
       let entries={}, sum=0, ok=true;
-      state.players.forEach((p,i)=>{
+      selectedPlayers.forEach((name,i)=>{
         const v=parseFloat(document.getElementById('amt-'+i)?.value||'');
         if(isNaN(v)){ ok=false; return; }
-        entries[p.name]=v; sum+=v;
+        entries[name]=v; sum+=v;
       });
       if(!ok){ toast('請填寫所有玩家的輸贏金額'); return; }
       const total=Math.round(sum*100)/100;
@@ -1282,7 +1321,8 @@
       document.getElementById('r-rounds').value='';
       document.getElementById('r-dealer-amt').value='';
       document.getElementById('r-dealer-payer').value='';
-      renderEntries();
+      selectedPlayers=[];
+      renderPicker();
     };
 
     // ── History ──────────────────────────────────────────────────
