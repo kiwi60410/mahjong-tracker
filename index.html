@@ -113,24 +113,26 @@
       }
       .nav-btn {
         flex: 1;
-        min-width: 70px;
-        padding: 12px 6px 10px;
+        min-width: 0;
+        padding: 10px 2px 8px;
         border: none;
         background: none;
         cursor: pointer;
-        font-size: 11px;
+        font-size: 10px;
         color: var(--text-muted);
         font-family: "Noto Sans TC", sans-serif;
         border-bottom: 3px solid transparent;
         margin-bottom: -2px;
         transition: all 0.2s;
-        white-space: nowrap;
+        white-space: normal;
+        word-break: keep-all;
         font-weight: 500;
+        line-height: 1.2;
       }
       .nav-btn .icon {
         display: block;
-        font-size: 18px;
-        margin-bottom: 3px;
+        font-size: 16px;
+        margin-bottom: 2px;
       }
       .nav-btn.active {
         color: var(--blue);
@@ -828,6 +830,7 @@
         background: #fff;
         border-top: 1.5px solid var(--border);
         padding: 10px 1rem;
+        padding-bottom: calc(10px + env(safe-area-inset-bottom));
         display: flex;
         gap: 8px;
         z-index: 50;
@@ -952,23 +955,28 @@
           </div>
           <div class="form-group">
             <label>地點</label>
-            <input type="text" id="r-place" placeholder="例：小明家" />
+            <select id="r-place">
+              <option value="">— 選擇地點 —</option>
+              <option value="波妞家">波妞家</option>
+              <option value="梓寧家">梓寧家</option>
+            </select>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>將數</label>
-            <input
-              type="number"
-              id="r-rounds"
-              placeholder="幾將"
-              min="1"
-              step="1"
-            />
+            <select id="r-rounds">
+              <option value="">— 選擇 —</option>
+              <option value="1">1 將</option>
+              <option value="2">2 將</option>
+              <option value="3">3 將</option>
+              <option value="4">4 將</option>
+              <option value="5">5 將</option>
+            </select>
           </div>
           <div class="form-group">
             <label>莊錢金額</label>
-            <input type="number" id="r-dealer-amt" placeholder="0" step="50" />
+            <input type="text" inputmode="decimal" id="r-dealer-amt" placeholder="0">
           </div>
         </div>
         <div class="form-row">
@@ -1275,7 +1283,7 @@
         return `<div class="player-card">
           <div class="player-avatar ${av(colorIdx)}">${name.charAt(0)}</div>
           <span class="player-name-label">${name}</span>
-          <input type="number" id="amt-${i}" placeholder="± 金額" step="50" oninput="checkSum()" inputmode="numeric">
+          <input type="text" inputmode="decimal" id="amt-${i}" placeholder="輸入金額（-代表輸）" oninput="checkSum()" style="max-width:160px;text-align:right;border:none;background:none;font-size:15px;font-weight:700;padding:0;font-family:inherit">
         </div>`;
       }).join('');
       checkSum();
@@ -1301,7 +1309,7 @@
       if(!selectedPlayers.length) return;
       let win=0, lose=0, allFilled=true;
       selectedPlayers.forEach((_,i)=>{
-        const v=parseFloat(document.getElementById('amt-'+i)?.value||'');
+        const raw=(document.getElementById('amt-'+i)?.value||'').trim(); const v=parseFloat(raw);
         if(isNaN(v)) allFilled=false;
         else if(v>0) win+=v;
         else lose+=Math.abs(v);
@@ -1327,7 +1335,7 @@
     // ── Save Record ──────────────────────────────────────────────
     window.saveRecord = async function(){
       const date=document.getElementById('r-date').value;
-      const place=document.getElementById('r-place').value.trim();
+      const place=document.getElementById('r-place').value;
       const rounds=parseInt(document.getElementById('r-rounds').value)||0;
       const dealerAmt=parseFloat(document.getElementById('r-dealer-amt').value||'0')||0;
       const dealerPayer=document.getElementById('r-dealer-payer').value;
@@ -1336,7 +1344,7 @@
       if(!selectedPlayers.length){ toast('請先選擇本局參與成員'); return; }
       let entries={}, sum=0, ok=true;
       selectedPlayers.forEach((name,i)=>{
-        const v=parseFloat(document.getElementById('amt-'+i)?.value||'');
+        const raw=(document.getElementById('amt-'+i)?.value||'').trim(); const v=parseFloat(raw);
         if(isNaN(v)){ ok=false; return; }
         entries[name]=v; sum+=v;
       });
