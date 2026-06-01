@@ -1131,17 +1131,44 @@
       });
     }
 
-    // 即時監聽（每 3 秒輪詢）
+    // 即時監聽（每 30 秒輪詢，輸入中不打斷）
     const listeners = {};
+    let userTyping = false;
+    let typingTimer = null;
+
+    document.addEventListener('focusin', e => {
+      if(e.target.matches('input, select, textarea')) {
+        userTyping = true;
+        clearTimeout(typingTimer);
+      }
+    });
+    document.addEventListener('focusout', e => {
+      if(e.target.matches('input, select, textarea')) {
+        // 離開欄位後 1 秒才解除保護，避免在欄位間切換時被打斷
+        typingTimer = setTimeout(() => { userTyping = false; }, 1000);
+      }
+    });
+
     function dbListen(path, cb) {
       async function poll() {
         try {
           const data = await dbGet(path);
+          // 使用者正在輸入時，只更新 state 資料，不重新 render 頁面
+          if(userTyping) {
+            if(path === 'players') {
+              state.players = data ? Object.entries(data).map(([id,v])=>({id,...v})) : [];
+            } else if(path === 'records') {
+              state.records = data
+                ? Object.entries(data).map(([id,v])=>({id,...v})).sort((a,b)=>b.date.localeCompare(a.date))
+                : [];
+            }
+            return;
+          }
           cb(data);
         } catch(e) { console.warn('poll error', e); }
       }
       poll();
-      listeners[path] = setInterval(poll, 3000);
+      listeners[path] = setInterval(poll, 30000);
     }
 
     // ── State ─────────────────────────────────────────────────────
