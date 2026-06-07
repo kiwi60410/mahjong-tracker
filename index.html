@@ -617,13 +617,12 @@ window.showHuModal = function(winner){
 };
 
 window.confirmHu = async function(fangPlayer){
+  const winner = huWinner; // 先存起來，再關 modal（避免 hideHuModal 清空 huWinner）
   hideHuModal();
   if(fangPlayer){
-    // 有放槍：記 fang（含 winner），莊家輪轉由 calcDealer 根據 winner 決定
-    await logAction(fangPlayer, 'fang', {winner: huWinner});
+    await logAction(fangPlayer, 'fang', {winner});
   } else {
-    // 無放槍（自行胡牌）
-    await logAction(huWinner, 'hu');
+    await logAction(winner, 'hu');
   }
 };
 
