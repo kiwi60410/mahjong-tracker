@@ -406,9 +406,40 @@ window.confirmRename = async function(){
   if(newName === renameTarget.oldName){ hideRenameModal(); return; }
   if(state.members.find(m=>m.name===newName)){ toast('此名字已存在'); return; }
 
-  // 更新 members 資料庫
+  const oldName = renameTarget.oldName;
+
+  // 1. 更新成員名稱
   await dbSet(`members/${renameTarget.id}/name`, newName);
-  toast(`✅ ${renameTarget.oldName} → ${newName}`);
+
+  // 2. 遍歷所有場次的 logs，把舊名字換成新名字
+  const updates = [];
+  state.sessions.forEach(s => {
+    if(!s.logs) return;
+    Object.entries(s.logs).forEach(([logId, log]) => {
+      let changed = false;
+      const updated = {...log};
+
+      // 各欄位逐一檢查
+      if(updated.player === oldName){ updated.player = newName; changed = true; }
+      if(updated.winner === oldName){ updated.winner = newName; changed = true; }
+      if(updated.outPlayer === oldName){ updated.outPlayer = newName; changed = true; }
+      if(updated.inPlayer === oldName){ updated.inPlayer = newName; changed = true; }
+      if(updated.dealer === oldName){ updated.dealer = newName; changed = true; }
+
+      if(changed) updates.push({ path: `sessions/${s.id}/logs/${logId}`, data: updated });
+    });
+
+    // session.members 陣列也要更新
+    if(s.members && s.members.includes(oldName)){
+      const newMembers = s.members.map(n => n === oldName ? newName : n);
+      updates.push({ path: `sessions/${s.id}/members`, data: newMembers });
+    }
+  });
+
+  // 批次更新
+  await Promise.all(updates.map(u => dbSet(u.path, u.data)));
+
+  toast(`✅ ${oldName} → ${newName}（已更新 ${updates.length} 筆記錄）`);
   hideRenameModal();
   await pollDB();
 };
