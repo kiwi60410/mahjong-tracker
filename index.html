@@ -198,9 +198,25 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div class="sec" style="margin:0">⚡ 即時登記</div>
-      <button class="btn btn-sm btn-gray" onclick="showSubModal()">🔄 換人</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-gray" onclick="logDraw()">🌀 流局</button>
+        <button class="btn btn-sm btn-gray" onclick="showSubModal()">🔄 換人</button>
+      </div>
     </div>
     <div id="live-players"></div>
+
+    <!-- 胡牌 Modal -->
+    <div id="hu-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:flex-end;justify-content:center">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom));width:100%;max-width:640px">
+        <div style="font-size:16px;font-weight:800;margin-bottom:4px;text-align:center">✋ <span id="hu-winner-name"></span> 胡牌</div>
+        <div style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:16px">誰放槍了？</div>
+        <div id="hu-fang-list" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:16px"></div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-gray" style="flex:1" onclick="hideHuModal()">取消</button>
+          <button class="btn btn-blue" style="flex:1" onclick="confirmHu(null)">無放槍（自行胡）</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 換人 Modal -->
     <div id="sub-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:flex-end;justify-content:center">
@@ -433,7 +449,7 @@ function renderLive(){
   const stats={};
   currentSeats.forEach(name=>{ if(!stats[name]) stats[name]={zimo:0,hu:0,fang:0}; });
   logs.forEach(log=>{
-    if(log.type==='sub') return; // 換人 log 不計入統計
+    if(log.type==='sub'||log.type==='draw') return; // 換人/流局不計入統計
     if(!stats[log.player]) stats[log.player]={zimo:0,hu:0,fang:0};
     if(log.type==='zimo') stats[log.player].zimo++;
     else if(log.type==='hu') stats[log.player].hu++;
@@ -472,11 +488,8 @@ function renderLive(){
         <button class="act-btn btn-zimo" onclick="logAction('${name}','zimo')" title="自摸">
           <span>🀄</span><span class="act-label">自摸</span>
         </button>
-        <button class="act-btn btn-hu" onclick="pickWinnerForFang('${name}')" title="胡牌">
-          <span>✋</span><span class="act-label">胡</span>
-        </button>
-        <button class="act-btn btn-fang" onclick="logAction('${name}','fang')" title="放槍">
-          <span>💥</span><span class="act-label">放槍</span>
+        <button class="act-btn btn-hu" onclick="showHuModal('${name}')" title="胡牌">
+          <span>✋</span><span class="act-label">胡牌</span>
         </button>
       </div>
     </div>`;
@@ -492,10 +505,11 @@ function renderLive(){
   logEl.innerHTML=reversed.map(log=>{
     const time=new Date(log.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
     let tag='',desc='';
-    if(log.type==='zimo'){ tag='<span class="log-tag tag-zimo">自摸</span>'; desc=log.player; }
-    else if(log.type==='hu'){ tag='<span class="log-tag tag-hu">胡牌</span>'; desc=`${log.player}${log.from?` ← ${log.from}`:'`'}`; }
-    else if(log.type==='fang'){ tag='<span class="log-tag tag-fang">放槍</span>'; desc=`${log.player}${log.winner?` → ${log.winner}`:''}` ; }
-    else if(log.type==='sub'){ tag='<span class="log-tag" style="background:#f5eef8;color:#7d3c98;border:1.5px solid #d2b4de">換人</span>'; desc=`${log.outPlayer} → ${log.inPlayer}`; }
+    if(log.type==='zimo'){ tag='<span class="log-tag tag-zimo">自摸</span>'; desc=`${log.player} 自摸`; }
+    else if(log.type==='hu'){ tag='<span class="log-tag tag-hu">胡牌</span>'; desc=`${log.player} 胡`; }
+    else if(log.type==='fang'){ tag='<span class="log-tag tag-fang">放槍</span>'; desc=`${log.player} 放槍${log.winner?` → ${log.winner} 胡`:''}`; }
+    else if(log.type==='draw'){ tag='<span class="log-tag" style="background:#eaf4fd;color:#2471a3;border:1.5px solid #aed9f5">流局</span>'; desc=`莊家 ${log.dealer} 連莊`; }
+    else if(log.type==='sub'){ tag='<span class="log-tag" style="background:#f5eef8;color:#7d3c98;border:1.5px solid #d2b4de">換人</span>'; desc=`${log.outPlayer} ↔ ${log.inPlayer}`; }
     const streakNote=log.streak>=2?`<span class="log-streak">🔥${log.streak}連</span>`:'';
     return `<div class="log-item">
       <span class="log-time">${time}</span>
@@ -508,6 +522,18 @@ function renderLive(){
 
 // ── 動作登記 ─────────────────────────────────────────────────
 let streakCache={name:'',count:0};
+
+window.logDraw = async function(){
+  if(!state.activeSession){ toast('請先開始場次'); return; }
+  const s=state.activeSession;
+  const logs=s.logs?Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts):[];
+  const {dealer,streak}=calcDealer(s.members||[], logs);
+  await dbPush(`sessions/${s.id}/logs`,{
+    type:'draw', ts:Date.now(), streak, dealer
+  });
+  toast(`🌀 流局！莊家 ${dealer} 繼續連莊`);
+  await pollDB();
+};
 
 window.logAction = async function(player, type, extra={}){
   if(!state.activeSession){ toast('請先開始場次'); return; }
@@ -528,7 +554,7 @@ window.logAction = async function(player, type, extra={}){
   const streakMsg = streak>=2 ? ` 🔥${streak}連莊` : '';
   if(type==='zimo') toast(`🀄 ${player} 自摸！${streakMsg}`);
   else if(type==='hu') toast(`✋ ${player} 胡牌！${streakMsg}`);
-  else if(type==='fang') toast(`💥 ${player} 放槍${extra.winner?` → ${extra.winner}`:''}　莊→ ${newDealer}`);
+  else if(type==='fang') toast(`💥 ${player} 放槍${extra.winner?`，${extra.winner} 胡！`:''}${streakMsg}`);
 
   await pollDB();
 };
@@ -829,8 +855,16 @@ function calcDealer(members, logs){
       if(log.player===dealer){ streak++; }
       else { dealerIdx=(dealerIdx+1)%seats.length; streak=0; }
     } else if(log.type==='fang'){
-      dealerIdx=(dealerIdx+1)%seats.length;
-      streak=0;
+      if(log.winner && log.winner===dealer){
+        // 莊家被放槍胡牌 → 連莊
+        streak++;
+      } else {
+        // 非莊家胡（放槍）→ 輪轉
+        dealerIdx=(dealerIdx+1)%seats.length;
+        streak=0;
+      }
+    } else if(log.type==='draw'){
+      // 流局：莊家不變，連莊數不變
     }
   });
 
