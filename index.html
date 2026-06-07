@@ -273,6 +273,39 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </div>
   <div class="sec">👥 目前成員</div>
   <div class="card"><div id="member-list" class="member-list"><div class="loading"><div class="spinner"></div></div></div></div>
+
+  <div class="sec" style="margin-top:1.25rem">🔀 合併成員</div>
+  <div class="card">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.6">將某人的所有歷史記錄合併到另一人身上，合併後舊成員會被移除。</p>
+    <div class="form-group">
+      <label>合併掉（舊名字，可手動輸入）</label>
+      <input type="text" id="merge-from-input" placeholder="輸入舊名字" list="merge-from-list">
+      <datalist id="merge-from-list"></datalist>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>合併到（保留的）</label>
+      <select id="merge-to">
+        <option value="">— 選擇 —</option>
+      </select>
+    </div>
+    <button class="btn btn-full" onclick="mergeMembers()"
+      style="background:#f39c12;color:#fff;border-color:#f39c12">
+      🔀 執行合併
+    </button>
+  </div>
+</div>
+
+<!-- 合併確認 Modal -->
+<div id="merge-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:center;justify-content:center;padding:1rem">
+  <div style="background:#fff;border-radius:var(--radius);padding:1.5rem;width:100%;max-width:400px">
+    <div style="font-size:16px;font-weight:800;margin-bottom:12px">🔀 確認合併</div>
+    <div id="merge-confirm-text" style="font-size:14px;line-height:1.7;color:var(--text);margin-bottom:16px;background:#fef9f0;padding:12px;border-radius:var(--rsm)"></div>
+    <div style="font-size:13px;color:var(--red-dark);margin-bottom:16px;font-weight:600">⚠️ 此操作無法復原，請確認後再執行。</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-gray" style="flex:1" onclick="hideMergeModal()">取消</button>
+      <button class="btn" style="flex:1;background:var(--red);color:#fff;border-color:var(--red)" onclick="confirmMerge()">確認合併</button>
+    </div>
+  </div>
 </div>
 
 <!-- 改名 Modal -->
@@ -370,6 +403,15 @@ function renderMemberList(){
       <button class="rm" onclick="renameMember('${m.id}','${m.name}')" style="color:#aaa;font-size:13px;padding:0 2px" title="改名">✏️</button>
       <button class="rm" onclick="removeMember('${m.id}','${m.name}')">×</button>
     </span>`).join('');
+
+  // 同步更新合併欄位
+  const toOpts = '<option value="">— 選擇 —</option>' +
+    state.members.map(m=>`<option value="${m.id}|${m.name}">${m.name}</option>`).join('');
+  const mt=document.getElementById('merge-to');
+  if(mt) mt.innerHTML=toOpts;
+  // datalist（含提示，但也可手動輸入不在列表的舊名字）
+  const dl=document.getElementById('merge-from-list');
+  if(dl) dl.innerHTML=state.members.map(m=>`<option value="${m.name}">`).join('');
 }
 
 window.addMember = async function(){
@@ -447,6 +489,65 @@ window.confirmRename = async function(){
 window.hideRenameModal = function(){
   document.getElementById('rename-modal').style.display='none';
   renameTarget = {id:'', oldName:''};
+};
+
+// ── 合併成員 ─────────────────────────────────────────────────
+let mergeData = {fromId:'', fromName:'', toName:''};
+
+window.mergeMembers = function(){
+  const fromName = document.getElementById('merge-from-input').value.trim();
+  const toVal    = document.getElementById('merge-to').value;
+  if(!fromName || !toVal){ toast('請填寫舊名字並選擇合併目標'); return; }
+  const [toId, toName] = toVal.split('|');
+  if(fromName === toName){ toast('不能合併同一個人'); return; }
+
+  // fromId 只有在成員還存在時才有，已刪除的話設空字串
+  const fromMember = state.members.find(m=>m.name===fromName);
+  mergeData = {fromId: fromMember?.id||'', fromName, toName};
+  document.getElementById('merge-confirm-text').innerHTML =
+    `將 <strong>「${fromName}」</strong> 的所有記錄合併到 <strong>「${toName}」</strong><br>
+     合併後「${fromName}」會從成員列表移除，<br>
+     歷史記錄中的「${fromName}」全部改為「${toName}」。`;
+  document.getElementById('merge-modal').style.display='flex';
+};
+
+window.confirmMerge = async function(){
+  const {fromId, fromName, toName} = mergeData;
+  hideMergeModal();
+
+  // 遍歷所有 log，把 fromName 替換成 toName
+  const updates = [];
+  state.sessions.forEach(s => {
+    if(!s.logs) return;
+    Object.entries(s.logs).forEach(([logId, log]) => {
+      let changed = false;
+      const updated = {...log};
+      if(updated.player    === fromName){ updated.player    = toName; changed = true; }
+      if(updated.winner    === fromName){ updated.winner    = toName; changed = true; }
+      if(updated.outPlayer === fromName){ updated.outPlayer = toName; changed = true; }
+      if(updated.inPlayer  === fromName){ updated.inPlayer  = toName; changed = true; }
+      if(updated.dealer    === fromName){ updated.dealer    = toName; changed = true; }
+      if(changed) updates.push({path:`sessions/${s.id}/logs/${logId}`, data:updated});
+    });
+    // session.members 陣列
+    if(s.members && s.members.includes(fromName)){
+      const newMembers = s.members.map(n => n === fromName ? toName : n);
+      updates.push({path:`sessions/${s.id}/members`, data:newMembers});
+    }
+  });
+
+  await Promise.all(updates.map(u => dbSet(u.path, u.data)));
+
+  // 刪除舊成員（若還在成員列表才刪）
+  if(fromId) await dbRemove(`members/${fromId}`);
+
+  toast(`✅ 合併完成，共更新 ${updates.length} 筆記錄`);
+  await pollDB();
+};
+
+window.hideMergeModal = function(){
+  document.getElementById('merge-modal').style.display='none';
+  mergeData = {fromId:'', fromName:'', toName:''};
 };
 
 // ── Member Picker ─────────────────────────────────────────────
