@@ -887,8 +887,7 @@ window.hideSubModal = function(){
 
 window.undoLog = async function(logId){
   if(!state.activeSession) return;
-  if(!confirm('確定撤銷這筆記錄？
-此操作無法復原。')) return;
+  if(!confirm('確定撤銷這筆記錄？此操作無法復原。')) return;
   await dbRemove(`sessions/${state.activeSession.id}/logs/${logId}`);
   toast('↩ 已撤銷');
   await pollDB();
