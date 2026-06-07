@@ -112,7 +112,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .undo-btn:active{color:var(--red)}
 
 /* ── 場次卡 ── */
-.session-head{background:linear-gradient(135deg,#2c3e50,#3d5166);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-radius:var(--rsm) var(--rsm) 0 0}
+.session-head{background:linear-gradient(135deg,#2c3e50,#3d5166);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-radius:var(--rsm) var(--rsm) 0 0;cursor:pointer;user-select:none}
+.session-logs{display:none;background:#fafaf8;border:1.5px solid var(--border);border-top:none;padding:8px 16px}
+.session-logs.open{display:block}
+.history-log-item{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed var(--border);font-size:13px}
+.history-log-item:last-child{border-bottom:none}
 .session-body{background:#fff;padding:12px 16px;border-radius:0 0 var(--rsm) var(--rsm);border:1.5px solid var(--border);border-top:none}
 .session-wrap{border-radius:var(--rsm);overflow:hidden;box-shadow:var(--shadow);margin-bottom:12px}
 
@@ -425,7 +429,8 @@ window.addMember = async function(){
 };
 
 window.removeMember = async function(id,name){
-  if(!confirm(`確定移除「${name}」？`)) return;
+  if(!confirm(`確定移除成員「${name}」嗎？
+移除後該成員將無法選入新場次（歷史記錄不受影響）。`)) return;
   await dbRemove(`members/${id}`);
   toast(`移除 ${name}`);
   await pollDB();
@@ -882,7 +887,8 @@ window.hideSubModal = function(){
 
 window.undoLog = async function(logId){
   if(!state.activeSession) return;
-  if(!confirm('確定撤銷這筆記錄？')) return;
+  if(!confirm('確定撤銷這筆記錄？
+此操作無法復原。')) return;
   await dbRemove(`sessions/${state.activeSession.id}/logs/${logId}`);
   toast('↩ 已撤銷');
   await pollDB();
@@ -926,23 +932,27 @@ window.renderStats = function(){
   sessions.forEach(s=>{
     const logs = s.logs ? Object.values(s.logs) : [];
     (s.members||[]).forEach(name=>{
+      if(!name || name==='undefined') return;
       if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0};
       totals[name].sessions++;
     });
+    const isValid = name => name && name !== 'undefined' && name.trim() !== '';
     logs.forEach(log=>{
-      if(log.type==='sub') return; // 換人 log 不計入統計
+      if(log.type==='sub'||log.type==='draw') return;
+      if(!isValid(log.player)) return; // 過濾無效名字
       if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,sessions:0};
       if(log.type==='zimo') totals[log.player].zimo++;
       else if(log.type==='hu') totals[log.player].hu++;
       else if(log.type==='fang') totals[log.player].fang++;
-      if(log.type==='fang' && log.winner){
+      if(log.type==='fang' && isValid(log.winner)){
         if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,sessions:0};
         totals[log.winner].hu++;
       }
     });
-    // 換人者也要列入統計（有出場就算參與）
+    // 換人者也要列入統計
     logs.filter(l=>l.type==='sub').forEach(log=>{
-      if(!totals[log.inPlayer]) totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0};
+      if(isValid(log.inPlayer) && !totals[log.inPlayer])
+        totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0};
     });
   });
 
@@ -1012,37 +1022,85 @@ window.renderStats = function(){
 };
 
 // ── History ───────────────────────────────────────────────────
+function historyLogTag(log){
+  if(log.type==='zimo') return `<span class="log-tag tag-zimo">自摸</span>`;
+  if(log.type==='hu')   return `<span class="log-tag tag-hu">胡牌</span>`;
+  if(log.type==='fang') return `<span class="log-tag tag-fang">放槍</span>`;
+  if(log.type==='draw') return `<span class="log-tag" style="background:#eaf4fd;color:#2471a3;border:1.5px solid #aed9f5">流局</span>`;
+  if(log.type==='sub')  return `<span class="log-tag" style="background:#f5eef8;color:#7d3c98;border:1.5px solid #d2b4de">換人</span>`;
+  return '';
+}
+
+function historyLogDesc(log){
+  if(log.type==='zimo') return `${log.player} 自摸`;
+  if(log.type==='hu')   return `${log.player} 胡`;
+  if(log.type==='fang') return `${log.winner||'?'} 胡（${log.player} 放槍）`;
+  if(log.type==='draw') return `流局，莊家 ${log.dealer||''} 繼續`;
+  if(log.type==='sub')  return `${log.outPlayer} ↔ ${log.inPlayer}`;
+  return '';
+}
+
 function renderHistory(){
   const el=document.getElementById('history-list');
   if(!state.sessions.length){ el.innerHTML='<div class="empty"><span class="ei">🀄</span><p>尚無歷史場次</p></div>'; return; }
   el.innerHTML=state.sessions.map(s=>{
-    const logs=s.logs?Object.values(s.logs):[];
-    const dur=s.endedAt?Math.round((s.endedAt-s.startedAt)/60000):'進行中';
-    const members=(s.members||[]).map(name=>`<span class="chip chip-gray" style="margin:2px">${name}</span>`).join('');
+    const sortedLogs=s.logs
+      ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts)
+      : [];
+    const dur=s.endedAt?Math.round((s.endedAt-s.startedAt)/60000)+'分鐘':'進行中';
+    const members=(s.members||[]).filter(n=>n&&n!=='undefined')
+      .map(name=>`<span class="chip chip-gray" style="margin:2px">${name}</span>`).join('');
     const status=s.endedAt
-      ? `<span class="chip chip-gray">${dur}分鐘</span>`
+      ? `<span class="chip chip-gray">${dur}</span>`
       : `<span class="chip chip-green">🟢 進行中</span>`;
+
+    const logRows = sortedLogs.map(log=>{
+      const time=new Date(log.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
+      const streakNote=log.streak>=2?`<span style="font-size:11px;color:var(--orange);font-weight:700">🔥${log.streak}連</span>`:'';
+      return `<div class="history-log-item">
+        <span style="font-size:11px;color:var(--muted);min-width:36px">${time}</span>
+        ${historyLogTag(log)}
+        <span style="flex:1;font-size:13px">${historyLogDesc(log)}</span>
+        ${streakNote}
+      </div>`;
+    }).join('');
+
     return `<div class="session-wrap">
-      <div class="session-head">
+      <div class="session-head" onclick="toggleHistory('${s.id}')">
         <div>
           <div style="color:#fff;font-weight:700;font-size:14px">🀄 ${sessionName(s)}</div>
           <div style="color:rgba(255,255,255,.6);font-size:12px;margin-top:2px">${new Date(s.startedAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           ${status}
-          <span class="chip chip-blue">${logs.length}筆</span>
-          ${s.endedAt?`<button class="btn btn-sm btn-red" onclick="deleteSession('${s.id}')" style="background:rgba(231,76,60,.2);border-color:rgba(231,76,60,.4);color:#fff;padding:5px 9px">🗑</button>`:''}
+          <span class="chip chip-blue">${sortedLogs.length}筆</span>
+          <span style="color:rgba(255,255,255,.6);font-size:14px" id="arrow-${s.id}">▶</span>
         </div>
       </div>
       <div class="session-body">
-        <div style="display:flex;flex-wrap:wrap;gap:4px">${members}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:${members?'6px':'0'}">${members}</div>
+        ${s.endedAt?`<div style="text-align:right"><button class="btn btn-sm btn-red" onclick="event.stopPropagation();deleteSession('${s.id}')" style="background:rgba(231,76,60,.15);border-color:#f5c6c6;color:var(--red-dark);font-size:12px">🗑 刪除</button></div>`:''}
+      </div>
+      <div class="session-logs" id="logs-${s.id}">
+        ${logRows||'<div style="padding:8px 0;color:var(--muted);font-size:13px">尚無記錄</div>'}
       </div>
     </div>`;
   }).join('');
 }
 
+window.toggleHistory = function(sid){
+  const el=document.getElementById('logs-'+sid);
+  const arrow=document.getElementById('arrow-'+sid);
+  if(!el) return;
+  el.classList.toggle('open');
+  if(arrow) arrow.textContent=el.classList.contains('open')?'▼':'▶';
+};
+
 window.deleteSession = async function(id){
-  if(!confirm('確定刪除這場紀錄？')) return;
+  const s = state.sessions.find(s=>s.id===id);
+  const name = s ? sessionName(s) : '此場次';
+  if(!confirm(`確定刪除「${name}」的所有記錄嗎？
+此操作無法復原。`)) return;
   await dbRemove(`sessions/${id}`);
   toast('🗑 已刪除');
   await pollDB();
