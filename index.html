@@ -507,7 +507,7 @@ function renderLive(){
     let tag='',desc='';
     if(log.type==='zimo'){ tag='<span class="log-tag tag-zimo">自摸</span>'; desc=`${log.player} 自摸`; }
     else if(log.type==='hu'){ tag='<span class="log-tag tag-hu">胡牌</span>'; desc=`${log.player} 胡`; }
-    else if(log.type==='fang'){ tag='<span class="log-tag tag-fang">放槍</span>'; desc=`${log.player} 放槍${log.winner?` → ${log.winner} 胡`:''}`; }
+    else if(log.type==='fang'){ tag='<span class="log-tag tag-hu">胡牌</span>'; desc=`${log.winner||'?'} 胡${log.player?` （${log.player} 放槍）`:''}`; }
     else if(log.type==='draw'){ tag='<span class="log-tag" style="background:#eaf4fd;color:#2471a3;border:1.5px solid #aed9f5">流局</span>'; desc=`莊家 ${log.dealer} 連莊`; }
     else if(log.type==='sub'){ tag='<span class="log-tag" style="background:#f5eef8;color:#7d3c98;border:1.5px solid #d2b4de">換人</span>'; desc=`${log.outPlayer} ↔ ${log.inPlayer}`; }
     const streakNote=log.streak>=2?`<span class="log-streak">🔥${log.streak}連</span>`:'';
