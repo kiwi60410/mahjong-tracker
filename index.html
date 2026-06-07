@@ -212,9 +212,9 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <!-- ═══ 統計 ═══ -->
 <div class="page" id="page-stats">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="sec" style="margin:0">📊 戰績統計</div>
-    <select id="stats-filter" onchange="renderStats()" style="width:auto;padding:6px 30px 6px 10px;font-size:13px">
-      <option value="all">全部場次</option>
+    <div class="sec" style="margin:0">📊 每月統計</div>
+    <select id="stats-month" onchange="renderStats()" style="width:auto;padding:6px 30px 6px 10px;font-size:13px">
+      <option value="">載入中...</option>
     </select>
   </div>
   <div id="stats-content"><div class="loading"><div class="spinner"></div></div></div>
@@ -360,8 +360,15 @@ window.togglePick = function(name){
 window.startSession = async function(){
   if(selectedMembers.length<2){ toast('請至少選擇 2 位成員'); return; }
   if(state.activeSession){ toast('已有進行中的場次'); return; }
+  // 算今天已有幾將（同一天的場次數）
+  const today = new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'});
+  const todaySessions = state.sessions.filter(s=>{
+    return new Date(s.startedAt).toLocaleDateString('zh-TW',{year:'numeric',month:'2-digit',day:'2-digit'}) === today;
+  });
+  const roundNo = todaySessions.length + 1;
   const session={
     members:selectedMembers,
+    roundNo,
     startedAt:Date.now(), endedAt:null, logs:{}
   };
   await dbPush('sessions',session);
@@ -395,7 +402,7 @@ function renderLive(){
   const logs=s.logs ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts) : [];
   const members=s.members||[];
 
-  document.getElementById('session-info').textContent=`🀄 ${new Date(s.startedAt).toLocaleDateString('zh-TW')} 場次`;
+  document.getElementById('session-info').textContent=`🀄 ${sessionName(s)}`;
   document.getElementById('session-count').textContent=`${logs.length} 筆記錄 · ${new Date(s.startedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})} 開始`;
   document.getElementById('log-count').textContent=logs.length;
 
@@ -548,53 +555,120 @@ window.undoLog = async function(logId){
 
 // ── Stats ─────────────────────────────────────────────────────
 window.renderStats = function(){
-  const filter=document.getElementById('stats-filter').value;
-  let sessions=state.sessions;
-  if(filter!=='all') sessions=sessions.filter(s=>s.id===filter);
+  // 從所有場次整理出有資料的月份
+  const monthSet = new Set();
+  state.sessions.forEach(s=>{
+    const d = new Date(s.startedAt);
+    monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  });
+  const months = [...monthSet].sort().reverse();
 
-  // 更新 filter 選項
-  const sel=document.getElementById('stats-filter');
-  const cur=sel.value;
-  sel.innerHTML='<option value="all">全部場次</option>'+
-    state.sessions.map(s=>`<option value="${s.id}">${new Date(s.startedAt).toLocaleDateString('zh-TW')} 場次</option>`).join('');
-  sel.value=cur;
+  // 更新月份下拉
+  const sel = document.getElementById('stats-month');
+  const cur = sel.value;
+  if(!months.length){
+    sel.innerHTML='<option value="">尚無資料</option>';
+    document.getElementById('stats-content').innerHTML='<div class="empty"><span class="ei">🔍</span><p>尚無資料</p></div>';
+    return;
+  }
+  sel.innerHTML = months.map(m=>{
+    const [y,mo] = m.split('-');
+    return `<option value="${m}">${y}年${parseInt(mo)}月</option>`;
+  }).join('');
+  // 預設選最新月份
+  if(!cur || !months.includes(cur)) sel.value = months[0];
+  const selectedMonth = sel.value;
+
+  // 篩選該月場次
+  const sessions = state.sessions.filter(s=>{
+    const d = new Date(s.startedAt);
+    const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    return m === selectedMonth;
+  });
 
   // 累計統計
-  const totals={};
+  const totals = {};
   sessions.forEach(s=>{
-    const logs=s.logs?Object.values(s.logs):[];
-    (s.members||[]).forEach(name=>{ if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,total:0}; totals[name].total++; });
+    const logs = s.logs ? Object.values(s.logs) : [];
+    (s.members||[]).forEach(name=>{
+      if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0};
+      totals[name].sessions++;
+    });
     logs.forEach(log=>{
-      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,total:0};
+      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,sessions:0};
       if(log.type==='zimo') totals[log.player].zimo++;
       else if(log.type==='hu') totals[log.player].hu++;
       else if(log.type==='fang') totals[log.player].fang++;
-      // 放槍時 winner 也計胡
-      if(log.type==='fang'&&log.winner){
-        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,total:0};
+      if(log.type==='fang' && log.winner){
+        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,sessions:0};
         totals[log.winner].hu++;
       }
     });
   });
 
-  const el=document.getElementById('stats-content');
-  if(!Object.keys(totals).length){ el.innerHTML='<div class="empty"><span class="ei">🔍</span><p>暫無資料</p></div>'; return; }
+  const el = document.getElementById('stats-content');
 
-  el.innerHTML=`<div class="stat-grid">`+
-    Object.entries(totals).map(([name,st])=>{
-      const wins=st.zimo+st.hu;
-      const rate=st.total>0?Math.round(wins/Math.max(st.total,1)*100):0;
-      const cls=wins>st.fang?'chip-green':wins<st.fang?'chip-red':'chip-gray';
-      return `<div class="stat-card" style="background:#fafaf8;border-color:var(--border)">
-        <div class="stat-name">${name}</div>
+  // 月份總覽
+  const totalLogs = sessions.reduce((s,sess)=>s+(sess.logs?Object.values(sess.logs).length:0),0);
+  let html = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      <div class="card" style="text-align:center;padding:12px 8px;margin-bottom:0">
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px">場次</div>
+        <div style="font-size:22px;font-weight:900;font-family:'Nunito',sans-serif">${sessions.length}</div>
+      </div>
+      <div class="card" style="text-align:center;padding:12px 8px;margin-bottom:0">
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px">記錄筆數</div>
+        <div style="font-size:22px;font-weight:900;font-family:'Nunito',sans-serif">${totalLogs}</div>
+      </div>
+      <div class="card" style="text-align:center;padding:12px 8px;margin-bottom:0">
+        <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px">參與人數</div>
+        <div style="font-size:22px;font-weight:900;font-family:'Nunito',sans-serif">${Object.keys(totals).length}</div>
+      </div>
+    </div>
+    <div class="sec">🏆 個人戰績</div>
+    <div class="stat-grid">`;
+
+  // 依自摸+胡排序
+  Object.entries(totals)
+    .sort((a,b)=>(b[1].zimo+b[1].hu)-(a[1].zimo+a[1].hu))
+    .forEach(([name,st],rank)=>{
+      const wins = st.zimo + st.hu;
+      const cls = wins>st.fang?'chip-green':wins<st.fang?'chip-red':'chip-gray';
+      const medal = rank===0?'🥇':rank===1?'🥈':rank===2?'🥉':'';
+      html += `<div class="stat-card" style="background:#fafaf8;border-color:var(--border)">
+        <div class="stat-name">${medal} ${name}</div>
         <div class="stat-row">
           <div class="stat-item"><div class="stat-item-val" style="color:var(--green-dark)">${st.zimo}</div><div class="stat-item-label">自摸</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--blue-dark)">${st.hu}</div><div class="stat-item-label">胡牌</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--red-dark)">${st.fang}</div><div class="stat-item-label">放槍</div></div>
         </div>
-        <div class="stat-rate">勝率 <span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span></div>
+        <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> ${st.sessions}場</div>
       </div>`;
-    }).join('')+`</div>`;
+    });
+
+  html += `</div>`;
+
+  // 本月場次列表
+  html += `<div class="sec" style="margin-top:1rem">📋 本月場次</div><div class="card" style="padding:0 1rem">`;
+  if(!sessions.length){
+    html += `<div style="padding:1rem 0;text-align:center;color:var(--muted);font-size:13px">無場次</div>`;
+  } else {
+    sessions.forEach(s=>{
+      const logs = s.logs ? Object.values(s.logs) : [];
+      const dur = s.endedAt ? Math.round((s.endedAt-s.startedAt)/60000)+'分鐘' : '進行中';
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px dashed var(--border)">
+        <span style="font-weight:700;font-size:14px">${sessionName(s)}</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="chip chip-gray">${logs.length}筆</span>
+          <span class="chip chip-gray">${dur}</span>
+        </div>
+      </div>`;
+    });
+    html = html.replace(/<\/div>$/, '') + `</div></div>`;
+  }
+  html += `</div>`;
+
+  el.innerHTML = html;
 };
 
 // ── History ───────────────────────────────────────────────────
@@ -611,7 +685,7 @@ function renderHistory(){
     return `<div class="session-wrap">
       <div class="session-head">
         <div>
-          <div style="color:#fff;font-weight:700;font-size:14px">🀄 ${new Date(s.startedAt).toLocaleDateString('zh-TW')} 場次</div>
+          <div style="color:#fff;font-weight:700;font-size:14px">🀄 ${sessionName(s)}</div>
           <div style="color:rgba(255,255,255,.6);font-size:12px;margin-top:2px">${new Date(s.startedAt).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</div>
         </div>
         <div style="display:flex;gap:6px;align-items:center">
@@ -633,6 +707,15 @@ window.deleteSession = async function(id){
   toast('🗑 已刪除');
   await pollDB();
 };
+
+// ── 場次名稱 ────────────────────────────────────────────────────
+function sessionName(s){
+  const d = new Date(s.startedAt);
+  const month = d.getMonth()+1;
+  const day = d.getDate();
+  const round = s.roundNo || 1;
+  return `${month}月${day}日 第${round}將`;
+}
 
 // ── Start ─────────────────────────────────────────────────────
 init();
