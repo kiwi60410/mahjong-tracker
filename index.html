@@ -275,6 +275,21 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <div class="card"><div id="member-list" class="member-list"><div class="loading"><div class="spinner"></div></div></div></div>
 </div>
 
+<!-- 改名 Modal -->
+<div id="rename-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;align-items:flex-end;justify-content:center">
+  <div style="background:#fff;border-radius:20px 20px 0 0;padding:1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom));width:100%;max-width:640px">
+    <div style="font-size:16px;font-weight:800;margin-bottom:16px;text-align:center">✏️ 更改暱稱</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">新暱稱</div>
+    <input type="text" id="rename-input" placeholder="輸入新名字"
+      style="margin-bottom:16px"
+      onkeydown="if(event.key==='Enter')confirmRename()">
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-gray" style="flex:1" onclick="hideRenameModal()">取消</button>
+      <button class="btn btn-green" style="flex:1" onclick="confirmRename()">確認改名</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -349,9 +364,10 @@ function renderMemberList(){
   const el=document.getElementById('member-list');
   if(!state.members.length){ el.innerHTML='<span style="color:var(--muted);font-size:14px">尚無成員</span>'; return; }
   el.innerHTML=state.members.map(m=>`
-    <span class="member-chip">
+    <span class="member-chip" style="gap:4px">
       <span class="${av(m.name)}" style="width:26px;height:26px;font-size:11px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800">${m.name.charAt(0)}</span>
       ${m.name}
+      <button class="rm" onclick="renameMember('${m.id}','${m.name}')" style="color:#aaa;font-size:13px;padding:0 2px" title="改名">✏️</button>
       <button class="rm" onclick="removeMember('${m.id}','${m.name}')">×</button>
     </span>`).join('');
 }
@@ -371,6 +387,35 @@ window.removeMember = async function(id,name){
   await dbRemove(`members/${id}`);
   toast(`移除 ${name}`);
   await pollDB();
+};
+
+// ── 改名 ─────────────────────────────────────────────────────
+let renameTarget = {id:'', oldName:''};
+
+window.renameMember = function(id, oldName){
+  renameTarget = {id, oldName};
+  const inp = document.getElementById('rename-input');
+  inp.value = oldName;
+  document.getElementById('rename-modal').style.display='flex';
+  setTimeout(()=>{ inp.focus(); inp.select(); }, 100);
+};
+
+window.confirmRename = async function(){
+  const newName = document.getElementById('rename-input').value.trim();
+  if(!newName){ toast('請輸入新名字'); return; }
+  if(newName === renameTarget.oldName){ hideRenameModal(); return; }
+  if(state.members.find(m=>m.name===newName)){ toast('此名字已存在'); return; }
+
+  // 更新 members 資料庫
+  await dbSet(`members/${renameTarget.id}/name`, newName);
+  toast(`✅ ${renameTarget.oldName} → ${newName}`);
+  hideRenameModal();
+  await pollDB();
+};
+
+window.hideRenameModal = function(){
+  document.getElementById('rename-modal').style.display='none';
+  renameTarget = {id:'', oldName:''};
 };
 
 // ── Member Picker ─────────────────────────────────────────────
