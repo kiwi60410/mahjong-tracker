@@ -592,6 +592,46 @@ window.logAction_fang = function(player){
   }
 };
 
+// ── 胡牌 Modal ───────────────────────────────────────────────
+let huWinner = '';
+
+window.showHuModal = function(winner){
+  const s=state.activeSession;
+  if(!s){ toast('請先開始場次'); return; }
+  const logs=s.logs?Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts):[];
+  const {seats}=calcDealer(s.members||[], logs);
+
+  huWinner=winner;
+  document.getElementById('hu-winner-name').textContent=winner;
+
+  // 其他座位上的人（可能放槍）
+  const others=seats.filter(n=>n!==winner);
+  document.getElementById('hu-fang-list').innerHTML=others.map(name=>`
+    <button class="picker-btn" onclick="confirmHu('${name}')"
+      style="border-color:var(--border);min-width:80px;justify-content:center">
+      <span class="${av(name)}" style="width:22px;height:22px;font-size:10px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:800">${name.charAt(0)}</span>
+      ${name}
+    </button>`).join('');
+
+  document.getElementById('hu-modal').style.display='flex';
+};
+
+window.confirmHu = async function(fangPlayer){
+  hideHuModal();
+  if(fangPlayer){
+    // 有放槍：記 fang（含 winner），莊家輪轉由 calcDealer 根據 winner 決定
+    await logAction(fangPlayer, 'fang', {winner: huWinner});
+  } else {
+    // 無放槍（自行胡牌）
+    await logAction(huWinner, 'hu');
+  }
+};
+
+window.hideHuModal = function(){
+  document.getElementById('hu-modal').style.display='none';
+  huWinner='';
+};
+
 // ── 換人 Modal ────────────────────────────────────────────────
 let subOut='', subIn='';
 
