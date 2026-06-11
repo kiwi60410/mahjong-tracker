@@ -345,6 +345,7 @@ async function dbRemove(p){ await fetch(`${DB}/${ROOT}/${p}.json?auth=${KEY}`,{m
 
 // ── State ──────────────────────────────────────────────────────
 let state = { members:[], sessions:[], activeSession:null };
+let openSessions = new Set(); // 記錄已展開的歷史場次
 let selectedMembers = [];
 let pollTimers = {};
 let userTyping = false, typingTimer = null;
@@ -375,7 +376,10 @@ async function pollDB(){
       renderMemberPicker();
       renderLive();
       renderStats();
-      renderHistory();
+      // 歷史頁面：只有在不是當前頁面、或沒有任何展開項目時才 render
+      const historyPage = document.getElementById('page-history');
+      const isViewingHistory = historyPage && historyPage.classList.contains('active');
+      if(!isViewingHistory || openSessions.size === 0) renderHistory();
       renderMemberList();
     }
     document.getElementById('sync-status').textContent=`同步完成 · ${state.sessions.length} 場`;
@@ -941,25 +945,34 @@ window.renderStats = function(){
     const hasSub = sortedLogs.some(l=>l.type==='sub');
     const dealerCounts = calcDealerCount(s.members||[], sortedLogs);
 
-    if(!hasSub){
-      // 沒換人 → 全員記 1將
-      (s.members||[]).forEach(name=>{
-        if(!name || name==='undefined') return;
-        if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+    // 找出這場被換出或換入的人（曾經被換的人算圈數，沒被換的算將）
+    const swappedOut = new Set(sortedLogs.filter(l=>l.type==='sub').map(l=>l.outPlayer));
+    const swappedIn  = new Set(sortedLogs.filter(l=>l.type==='sub').map(l=>l.inPlayer));
+    const swapped = new Set([...swappedOut, ...swappedIn]);
+
+    // 以個人為單位判斷：沒被換過的人算1將，被換過的人算圈數
+    (s.members||[]).forEach(name=>{
+      if(!name || name==='undefined') return;
+      if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+      if(!swapped.has(name)){
+        // 全程在場，記 1將
         totals[name].sessions++;
-      });
-    } else {
-      // 有換人 → 用當莊次數算圈數
-      Object.entries(dealerCounts).forEach(([name,cnt])=>{
-        if(!isValid(name)) return;
+      }
+    });
+
+    // 換人相關的人（換入者）算圈數
+    Object.entries(dealerCounts).forEach(([name,cnt])=>{
+      if(!isValid(name)) return;
+      if(swapped.has(name)){
         if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
         totals[name].dealerCount=(totals[name].dealerCount||0)+cnt;
-      });
-      logs.filter(l=>l.type==='sub').forEach(log=>{
-        if(isValid(log.inPlayer) && !totals[log.inPlayer])
-          totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
-      });
-    }
+      }
+    });
+    // 確保換入的人有 entry
+    sortedLogs.filter(l=>l.type==='sub').forEach(log=>{
+      if(isValid(log.inPlayer) && !totals[log.inPlayer])
+        totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+    });
 
     logs.forEach(log=>{
       if(log.type==='sub'||log.type==='draw') return;
@@ -1078,6 +1091,7 @@ function renderHistory(){
     const status=s.endedAt
       ? `<span class="chip chip-gray">${dur}</span>`
       : `<span class="chip chip-green">🟢 進行中</span>`;
+    const isOpen = openSessions.has(s.id);
 
     const logRows = sortedLogs.map(log=>{
       const time=new Date(log.ts).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});
@@ -1099,14 +1113,14 @@ function renderHistory(){
         <div style="display:flex;gap:6px;align-items:center">
           ${status}
           <span class="chip chip-blue">${sortedLogs.length}筆</span>
-          <span style="color:rgba(255,255,255,.6);font-size:14px" id="arrow-${s.id}">▶</span>
+          <span style="color:rgba(255,255,255,.6);font-size:14px" id="arrow-${s.id}">${isOpen?'▼':'▶'}</span>
         </div>
       </div>
       <div class="session-body">
         <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:${members?'6px':'0'}">${members}</div>
         ${s.endedAt?`<div style="text-align:right"><button class="btn btn-sm btn-red" onclick="event.stopPropagation();deleteSession('${s.id}')" style="background:rgba(231,76,60,.15);border-color:#f5c6c6;color:var(--red-dark);font-size:12px">🗑 刪除</button></div>`:''}
       </div>
-      <div class="session-logs" id="logs-${s.id}">
+      <div class="session-logs ${isOpen?'open':''}" id="logs-${s.id}">
         ${logRows||'<div style="padding:8px 0;color:var(--muted);font-size:13px">尚無記錄</div>'}
       </div>
     </div>`;
@@ -1118,7 +1132,9 @@ window.toggleHistory = function(sid){
   const arrow=document.getElementById('arrow-'+sid);
   if(!el) return;
   el.classList.toggle('open');
-  if(arrow) arrow.textContent=el.classList.contains('open')?'▼':'▶';
+  const isOpen = el.classList.contains('open');
+  if(isOpen) openSessions.add(sid); else openSessions.delete(sid);
+  if(arrow) arrow.textContent=isOpen?'▼':'▶';
 };
 
 window.deleteSession = async function(id){
