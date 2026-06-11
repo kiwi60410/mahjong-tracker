@@ -1147,13 +1147,14 @@ window.deleteSession = async function(id){
   await pollDB();
 };
 
-// ── 計算每人當莊次數 ─────────────────────────────────────────
-// 回傳 {name: 當莊次數}（含連莊每次都算）
+// ── 計算每人當莊圈數 ─────────────────────────────────────────
+// 規則：莊家換人才算一圈，連莊不算
 function calcDealerCount(members, logs){
   if(!members.length) return {};
   let seats=[...members];
   let dealerIdx=0;
   const counts={};
+  let lastDealer=''; // 上一個莊家，用來偵測是否換莊
 
   logs.forEach(log=>{
     if(log.type==='sub'){
@@ -1162,25 +1163,31 @@ function calcDealerCount(members, logs){
       return;
     }
     if(log.type==='draw'||log.type==='sub') return;
+    if(log.type!=='zimo'&&log.type!=='hu'&&log.type!=='fang') return;
 
     const dealer=seats[dealerIdx];
-    // 每次有結果（胡/自摸/放槍）都算這局莊家當了一次莊
-    if(log.type==='zimo'||log.type==='hu'||(log.type==='fang')){
+
+    // 只有莊家換人時才記圈（新莊家第一次上場）
+    if(dealer !== lastDealer){
       counts[dealer]=(counts[dealer]||0)+1;
-      // 判斷輪轉
-      if(log.type==='zimo'||log.type==='hu'){
-        if(log.player!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
-      } else if(log.type==='fang'){
-        if(!log.winner||log.winner!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
-      }
+      lastDealer=dealer;
+    }
+
+    // 判斷輪轉
+    if(log.type==='zimo'){
+      if(log.player!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
+    } else if(log.type==='hu'){
+      if(log.player!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
+    } else if(log.type==='fang'){
+      if(!log.winner||log.winner!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
     }
   });
   return counts;
 }
 
-// 當莊次數轉換為圈數（每2次=0.5圈，不足2捨棄）
+// 當莊次數轉換為圈數（當幾次莊=幾圈）
 function dealerCountToCircles(count){
-  return Math.floor(count/2)*0.5;
+  return count||0;
 }
 
 // ── 莊家計算（含換人）────────────────────────────────────────
