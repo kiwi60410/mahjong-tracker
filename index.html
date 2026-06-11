@@ -194,7 +194,10 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <div style="font-size:15px;font-weight:700" id="session-info"></div>
         <div style="font-size:12px;color:var(--muted);margin-top:2px" id="session-count"></div>
       </div>
-      <button class="btn btn-sm btn-red" onclick="endSession()">結束場次</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#e67e22,#f39c12);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:900;color:#fff;font-family:'Nunito',sans-serif;box-shadow:0 2px 8px rgba(243,156,18,.4)" id="wind-display">東</div>
+        <button class="btn btn-sm btn-red" onclick="endSession()">結束場次</button>
+      </div>
     </div>
 
     <!-- 連莊提示 -->
@@ -620,12 +623,15 @@ function renderLive(){
   const logs=s.logs ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts) : [];
   const members=s.members||[];
 
+  const {wind, windRound} = calcDealer(members, logs);
   document.getElementById('session-info').textContent=`🀄 ${sessionName(s)}`;
   document.getElementById('session-count').textContent=`${logs.length} 筆記錄 · ${new Date(s.startedAt).toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})} 開始`;
+  const windEl = document.getElementById('wind-display');
+  if(windEl){ windEl.textContent=wind; windEl.title=wind+'風圈'; }
   document.getElementById('log-count').textContent=logs.length;
 
-  // 用共用函式算當前莊家、連莊數、即時座位
-  const {dealer:currentDealer, streak:currentStreak, seats:currentSeats} = calcDealer(members, logs);
+  // 用共用函式算當前莊家、連莊數、即時座位、風圈
+  const {dealer:currentDealer, streak:currentStreak, seats:currentSeats, wind:currentWind} = calcDealer(members, logs);
 
   // 算每人統計（所有上場過的人）
   const stats={};
@@ -930,28 +936,42 @@ window.renderStats = function(){
   const totals = {};
   sessions.forEach(s=>{
     const logs = s.logs ? Object.values(s.logs) : [];
-    (s.members||[]).forEach(name=>{
-      if(!name || name==='undefined') return;
-      if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0};
-      totals[name].sessions++;
-    });
+    const sortedLogs = s.logs ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts) : [];
     const isValid = name => name && name !== 'undefined' && name.trim() !== '';
+    const hasSub = sortedLogs.some(l=>l.type==='sub');
+    const dealerCounts = calcDealerCount(s.members||[], sortedLogs);
+
+    if(!hasSub){
+      // 沒換人 → 全員記 1將
+      (s.members||[]).forEach(name=>{
+        if(!name || name==='undefined') return;
+        if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+        totals[name].sessions++;
+      });
+    } else {
+      // 有換人 → 用當莊次數算圈數
+      Object.entries(dealerCounts).forEach(([name,cnt])=>{
+        if(!isValid(name)) return;
+        if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+        totals[name].dealerCount=(totals[name].dealerCount||0)+cnt;
+      });
+      logs.filter(l=>l.type==='sub').forEach(log=>{
+        if(isValid(log.inPlayer) && !totals[log.inPlayer])
+          totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+      });
+    }
+
     logs.forEach(log=>{
       if(log.type==='sub'||log.type==='draw') return;
-      if(!isValid(log.player)) return; // 過濾無效名字
-      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,sessions:0};
+      if(!isValid(log.player)) return;
+      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
       if(log.type==='zimo') totals[log.player].zimo++;
       else if(log.type==='hu') totals[log.player].hu++;
       else if(log.type==='fang') totals[log.player].fang++;
       if(log.type==='fang' && isValid(log.winner)){
-        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,sessions:0};
+        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
         totals[log.winner].hu++;
       }
-    });
-    // 換人者也要列入統計
-    logs.filter(l=>l.type==='sub').forEach(log=>{
-      if(isValid(log.inPlayer) && !totals[log.inPlayer])
-        totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0};
     });
   });
 
@@ -984,6 +1004,12 @@ window.renderStats = function(){
       const wins = st.zimo + st.hu;
       const cls = wins>st.fang?'chip-green':wins<st.fang?'chip-red':'chip-gray';
       const medal = rank===0?'🥇':rank===1?'🥈':rank===2?'🥉':'';
+      const circles = dealerCountToCircles(st.dealerCount||0);
+      // 組合將和圈的顯示
+      const parts = [];
+      if(st.sessions > 0) parts.push(st.sessions+'將');
+      if(circles > 0) parts.push(circles+'圈');
+      const participationText = parts.length > 0 ? parts.join(' ') : '—';
       html += `<div class="stat-card" style="background:#fafaf8;border-color:var(--border)">
         <div class="stat-name">${medal} ${name}</div>
         <div class="stat-row">
@@ -991,7 +1017,7 @@ window.renderStats = function(){
           <div class="stat-item"><div class="stat-item-val" style="color:var(--blue-dark)">${st.hu}</div><div class="stat-item-label">胡牌</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--red-dark)">${st.fang}</div><div class="stat-item-label">放槍</div></div>
         </div>
-        <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> ${st.sessions}場</div>
+        <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> <span style="color:var(--muted);font-size:12px">${participationText}</span></div>
       </div>`;
     });
 
@@ -1105,12 +1131,48 @@ window.deleteSession = async function(id){
   await pollDB();
 };
 
+// ── 計算每人當莊次數 ─────────────────────────────────────────
+// 回傳 {name: 當莊次數}（含連莊每次都算）
+function calcDealerCount(members, logs){
+  if(!members.length) return {};
+  let seats=[...members];
+  let dealerIdx=0;
+  const counts={};
+
+  logs.forEach(log=>{
+    if(log.type==='sub'){
+      const seatIdx=seats.indexOf(log.outPlayer);
+      if(seatIdx>=0) seats[seatIdx]=log.inPlayer;
+      return;
+    }
+    if(log.type==='draw'||log.type==='sub') return;
+
+    const dealer=seats[dealerIdx];
+    // 每次有結果（胡/自摸/放槍）都算這局莊家當了一次莊
+    if(log.type==='zimo'||log.type==='hu'||(log.type==='fang')){
+      counts[dealer]=(counts[dealer]||0)+1;
+      // 判斷輪轉
+      if(log.type==='zimo'||log.type==='hu'){
+        if(log.player!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
+      } else if(log.type==='fang'){
+        if(!log.winner||log.winner!==dealer) dealerIdx=(dealerIdx+1)%seats.length;
+      }
+    }
+  });
+  return counts;
+}
+
+// 當莊次數轉換為圈數（每2次=0.5圈，不足2捨棄）
+function dealerCountToCircles(count){
+  return Math.floor(count/2)*0.5;
+}
+
 // ── 莊家計算（含換人）────────────────────────────────────────
 // seats = 座位陣列（隨換人 log 更新），dealerIdx 指向 seats
 function calcDealer(members, logs){
   if(!members.length) return {dealer:'', streak:0, seats:[...members]};
   let seats=[...members]; // 座位順序
-  let dealerIdx=0, streak=0;
+  let dealerIdx=0, streak=0, totalRotations=0;
 
   logs.forEach(log=>{
     if(log.type==='sub'){
@@ -1123,10 +1185,10 @@ function calcDealer(members, logs){
     const dealer=seats[dealerIdx];
     if(log.type==='zimo'){
       if(log.player===dealer){ streak++; }
-      else { dealerIdx=(dealerIdx+1)%seats.length; streak=0; }
+      else { dealerIdx=(dealerIdx+1)%seats.length; streak=0; totalRotations++; }
     } else if(log.type==='hu'){
       if(log.player===dealer){ streak++; }
-      else { dealerIdx=(dealerIdx+1)%seats.length; streak=0; }
+      else { dealerIdx=(dealerIdx+1)%seats.length; streak=0; totalRotations++; }
     } else if(log.type==='fang'){
       if(log.winner && log.winner===dealer){
         // 莊家被放槍胡牌 → 連莊
@@ -1134,14 +1196,19 @@ function calcDealer(members, logs){
       } else {
         // 非莊家胡（放槍）→ 輪轉
         dealerIdx=(dealerIdx+1)%seats.length;
-        streak=0;
+        streak=0; totalRotations++;
       }
     } else if(log.type==='draw'){
       // 流局：莊家不變，連莊數不變
     }
   });
 
-  return {dealer: seats[dealerIdx], streak, seats};
+  // 計算風圈：總共完整輪過幾圈（每 seats.length 次輪轉 = 1圈）
+  // 風圈順序：東南西北
+  const WINDS = ['東','南','西','北'];
+  // 每 seats.length 次輪轉 = 1圈，到北風圈後不再循環
+  const windIdx = Math.min(Math.floor(totalRotations / seats.length), 3);
+  return {dealer: seats[dealerIdx], streak, seats, wind: WINDS[windIdx], windRound: windIdx + 1};
 }
 
 // ── 場次名稱 ─────────────────────────────────────────────────
