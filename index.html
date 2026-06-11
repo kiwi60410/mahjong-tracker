@@ -1160,6 +1160,9 @@ function calcDealerCount(members, logs){
     if(log.type==='sub'){
       const seatIdx=seats.indexOf(log.outPlayer);
       if(seatIdx>=0) seats[seatIdx]=log.inPlayer;
+      // 如果被換下去的是莊家，重置 lastDealer
+      // 這樣換上來的人在下一局會被正確記圈
+      if(seatIdx===dealerIdx) lastDealer='';
       return;
     }
     if(log.type==='draw'||log.type==='sub') return;
