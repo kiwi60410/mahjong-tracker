@@ -254,11 +254,20 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 <!-- ═══ 統計 ═══ -->
 <div class="page" id="page-stats">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="sec" style="margin:0">📊 每月統計</div>
-    <select id="stats-month" onchange="renderStats()" style="width:auto;padding:6px 30px 6px 10px;font-size:13px">
-      <option value="">載入中...</option>
-    </select>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div class="sec" style="margin:0" id="stats-title">📊 月統計</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;border:2px solid var(--border);border-radius:8px;overflow:hidden">
+        <button id="mode-month" onclick="switchStatsMode('month')"
+          style="padding:6px 12px;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;background:var(--blue);color:#fff">月</button>
+        <button id="mode-day" onclick="switchStatsMode('day')"
+          style="padding:6px 12px;border:none;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;background:#fff;color:var(--muted)">日</button>
+      </div>
+      <select id="stats-month" onchange="renderStats()" style="width:auto;padding:6px 30px 6px 10px;font-size:13px">
+        <option value="">載入中...</option>
+      </select>
+      <input type="date" id="stats-day" onchange="renderStats()" style="display:none;padding:6px 10px;font-size:13px;width:auto">
+    </div>
   </div>
   <div id="stats-content"><div class="loading"><div class="spinner"></div></div></div>
 </div>
@@ -904,6 +913,27 @@ window.undoLog = async function(logId){
 };
 
 // ── Stats ─────────────────────────────────────────────────────
+window.switchStatsMode = function(mode){
+  const monthSel = document.getElementById('stats-month');
+  const dayInp   = document.getElementById('stats-day');
+  const btnMonth = document.getElementById('mode-month');
+  const btnDay   = document.getElementById('mode-day');
+  if(mode==='month'){
+    monthSel.style.display=''; dayInp.style.display='none';
+    btnMonth.style.background='var(--blue)'; btnMonth.style.color='#fff';
+    btnDay.style.background='#fff'; btnDay.style.color='var(--muted)';
+    document.getElementById('stats-title').textContent='📊 月統計';
+  } else {
+    monthSel.style.display='none'; dayInp.style.display='';
+    btnDay.style.background='var(--blue)'; btnDay.style.color='#fff';
+    btnMonth.style.background='#fff'; btnMonth.style.color='var(--muted)';
+    document.getElementById('stats-title').textContent='📊 日統計';
+    // 預設今天
+    if(!dayInp.value) dayInp.value=new Date().toISOString().slice(0,10);
+  }
+  renderStats();
+};
+
 window.renderStats = function(){
   // 從所有場次整理出有資料的月份
   const monthSet = new Set();
@@ -929,12 +959,28 @@ window.renderStats = function(){
   if(!cur || !months.includes(cur)) sel.value = months[0];
   const selectedMonth = sel.value;
 
-  // 篩選該月場次
-  const sessions = state.sessions.filter(s=>{
-    const d = new Date(s.startedAt);
-    const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    return m === selectedMonth;
-  });
+  // 判斷目前模式
+  const dayInp = document.getElementById('stats-day');
+  const isDay  = dayInp && dayInp.style.display!=='none';
+
+  let sessions;
+  let periodLabel;
+  if(isDay){
+    const selectedDay = dayInp.value;
+    if(!selectedDay){ document.getElementById('stats-content').innerHTML='<div class="empty"><span class="ei">📅</span><p>請選擇日期</p></div>'; return; }
+    sessions = state.sessions.filter(s=>{
+      return new Date(s.startedAt).toISOString().slice(0,10)===selectedDay;
+    });
+    const d=new Date(selectedDay);
+    periodLabel=`${d.getMonth()+1}月${d.getDate()}日`;
+  } else {
+    sessions = state.sessions.filter(s=>{
+      const d = new Date(s.startedAt);
+      const m = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      return m === selectedMonth;
+    });
+    periodLabel=selectedMonth;
+  }
 
   // 累計統計
   const totals = {};
@@ -990,9 +1036,11 @@ window.renderStats = function(){
 
   const el = document.getElementById('stats-content');
 
-  // 月份總覽
+  // 月份/日期總覽
   const totalLogs = sessions.reduce((s,sess)=>s+(sess.logs?Object.values(sess.logs).length:0),0);
+  const overviewTitle = isDay ? `📅 ${periodLabel} 戰況` : `📊 ${periodLabel} 統計`;
   let html = `
+    <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:8px">${overviewTitle}</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
       <div class="card" style="text-align:center;padding:12px 8px;margin-bottom:0">
         <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:4px">場次</div>
