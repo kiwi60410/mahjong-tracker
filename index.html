@@ -945,18 +945,18 @@ window.renderStats = function(){
 
   // 更新月份下拉
   const sel = document.getElementById('stats-month');
-  const cur = sel.value;
   if(!months.length){
     sel.innerHTML='<option value="">尚無資料</option>';
     document.getElementById('stats-content').innerHTML='<div class="empty"><span class="ei">🔍</span><p>尚無資料</p></div>';
     return;
   }
+  const cur = sel.value; // 記住目前選的
   sel.innerHTML = months.map(m=>{
     const [y,mo] = m.split('-');
     return `<option value="${m}">${y}年${parseInt(mo)}月</option>`;
   }).join('');
-  // 預設選最新月份
-  if(!cur || !months.includes(cur)) sel.value = months[0];
+  // 還原選擇，若原本的月份還存在就保留，否則預設最新
+  sel.value = (cur && months.includes(cur)) ? cur : months[0];
   const selectedMonth = sel.value;
 
   // 判斷目前模式
