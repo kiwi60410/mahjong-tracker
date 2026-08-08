@@ -744,10 +744,16 @@ window.logAction = async function(player, type, extra={}){
   // 用共用函式計算這筆記錄後的莊家和連莊數
   const members=s.members||[];
   const simulatedLogs=[...logs, {player, type, ...extra}];
-  const {dealer:newDealer, streak} = calcDealer(members, simulatedLogs);
+  const {dealer:newDealer, streak, seats} = calcDealer(members, simulatedLogs);
   if(type==='sub') return; // sub 由 confirmSub 單獨處理
 
+  // 自摸時記錄同桌其他人（被自摸）
+  const beZimo = type==='zimo'
+    ? seats.filter(n=>n!==player && n && n!=='undefined')
+    : [];
+
   const entry={ player, type, ts:Date.now(), streak, dealer:newDealer, ...extra };
+  if(beZimo.length) entry.beZimo = beZimo;
   await dbPush(`sessions/${s.id}/logs`, entry);
 
   // 按鈕閃爍
@@ -1029,12 +1035,12 @@ window.renderStats = function(){
       if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
       if(log.type==='zimo'){
         totals[log.player].zimo++;
-        // 同桌其他人被自摸
-        sessionSeats.forEach(name=>{
-          if(name!==log.player && isValid(name)){
-            if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
-            totals[name].beZimo++;
-          }
+        // 從 log.beZimo 讀取被自摸的人（新格式）
+        const beZimoList = Array.isArray(log.beZimo) ? log.beZimo : [];
+        beZimoList.forEach(name=>{
+          if(!isValid(name)) return;
+          if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
+          totals[name].beZimo++;
         });
       } else if(log.type==='hu') totals[log.player].hu++;
       else if(log.type==='fang') totals[log.player].fang++;
@@ -1114,19 +1120,19 @@ window.renderStats = function(){
     const getTotal = st => (st.zimo||0)+(st.hu||0)+(st.fang||0)+(st.beZimo||0);
 
     const rankings = [
-      { title:'🀄 自摸王', key:'zimo', label:'次', desc:'自摸次數最多', higher:true, format: v=>`${v}次` },
-      { title:'📊 自摸率', key:'zimoRate', label:'%', desc:'自摸÷參與圈數', higher:true,
-        getValue: st=> getCircles(st)>0 ? (st.zimo||0)/getCircles(st) : 0,
+      { title:'🀄 自摸王', key:'zimo', higher:true, format: v=>`${v}次` },
+      { title:'📊 自摸率', higher:true,
+        getValue: st=> getCircles(st)>0 ? Math.min((st.zimo||0)/getCircles(st),1) : 0,
         format: v=>`${(v*100).toFixed(1)}%` },
-      { title:'✋ 胡牌王', key:'hu', label:'次', desc:'胡牌次數最多', higher:true, format: v=>`${v}次` },
-      { title:'📊 胡牌率', key:'huRate', label:'%', desc:'胡牌÷參與圈數', higher:true,
-        getValue: st=> getCircles(st)>0 ? (st.hu||0)/getCircles(st) : 0,
+      { title:'✋ 胡牌王', key:'hu', higher:true, format: v=>`${v}次` },
+      { title:'📊 胡牌率', higher:true,
+        getValue: st=> getCircles(st)>0 ? Math.min((st.hu||0)/getCircles(st),1) : 0,
         format: v=>`${(v*100).toFixed(1)}%` },
-      { title:'💥 放槍王', key:'fang', label:'次', desc:'放槍次數最多', higher:true, format: v=>`${v}次` },
-      { title:'📊 放槍率', key:'fangRate', label:'%', desc:'放槍÷參與圈數', higher:true,
-        getValue: st=> getCircles(st)>0 ? (st.fang||0)/getCircles(st) : 0,
+      { title:'💥 放槍王', key:'fang', higher:true, format: v=>`${v}次` },
+      { title:'📊 放槍率', higher:true,
+        getValue: st=> getCircles(st)>0 ? Math.min((st.fang||0)/getCircles(st),1) : 0,
         format: v=>`${(v*100).toFixed(1)}%` },
-      { title:'🔥 最常連莊', key:'maxStreak', label:'連', desc:'最高連莊紀錄', higher:true, format: v=>`${v}連` },
+      { title:'🔥 最常連莊', key:'maxStreak', higher:true, format: v=>`${v}連` },
     ];
 
     html += `<div class="sec" style="margin-top:1rem">🏆 排行榜 <span style="font-size:11px;font-weight:400;color:var(--muted)">（門檻：2將或8圈以上）</span></div>
