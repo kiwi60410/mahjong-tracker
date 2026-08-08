@@ -1020,16 +1020,31 @@ window.renderStats = function(){
         totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
     });
 
+    // 取得這場座位（用於被自摸計算）
+    const {seats:sessionSeats} = calcDealer(s.members||[], sortedLogs);
+
     logs.forEach(log=>{
       if(log.type==='sub'||log.type==='draw') return;
       if(!isValid(log.player)) return;
-      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
-      if(log.type==='zimo') totals[log.player].zimo++;
-      else if(log.type==='hu') totals[log.player].hu++;
+      if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
+      if(log.type==='zimo'){
+        totals[log.player].zimo++;
+        // 同桌其他人被自摸
+        sessionSeats.forEach(name=>{
+          if(name!==log.player && isValid(name)){
+            if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
+            totals[name].beZimo++;
+          }
+        });
+      } else if(log.type==='hu') totals[log.player].hu++;
       else if(log.type==='fang') totals[log.player].fang++;
       if(log.type==='fang' && isValid(log.winner)){
-        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+        if(!totals[log.winner]) totals[log.winner]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
         totals[log.winner].hu++;
+      }
+      // 最長連莊
+      if(log.streak && log.streak > (totals[log.player].maxStreak||0)){
+        totals[log.player].maxStreak = log.streak;
       }
     });
   });
@@ -1077,12 +1092,77 @@ window.renderStats = function(){
           <div class="stat-item"><div class="stat-item-val" style="color:var(--green-dark)">${st.zimo}</div><div class="stat-item-label">自摸</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--blue-dark)">${st.hu}</div><div class="stat-item-label">胡牌</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--red-dark)">${st.fang}</div><div class="stat-item-label">放槍</div></div>
+          <div class="stat-item"><div class="stat-item-val" style="color:var(--muted)">${st.beZimo||0}</div><div class="stat-item-label">被自摸</div></div>
         </div>
         <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> <span style="color:var(--muted);font-size:12px">${participationText}</span></div>
       </div>`;
     });
 
   html += `</div>`;
+
+  // ── 排行榜 ──────────────────────────────────────────────────
+  // 門檻：2將(8圈)以上，1將=4圈，所以 sessions*4 + circles >= 8
+  const qualified = Object.entries(totals).filter(([name, st])=>{
+    const totalCircles = (st.sessions||0)*4 + (st.dealerCount||0);
+    return totalCircles >= 8;
+  });
+
+  if(qualified.length >= 2){
+    // 參與圈數（用於計算率）
+    const getCircles = st => (st.sessions||0)*4 + dealerCountToCircles(st.dealerCount||0);
+    // 參與局數（自摸+胡+放槍+被自摸）
+    const getTotal = st => (st.zimo||0)+(st.hu||0)+(st.fang||0)+(st.beZimo||0);
+
+    const rankings = [
+      { title:'🀄 自摸王', key:'zimo', label:'次', desc:'自摸次數最多', higher:true, format: v=>`${v}次` },
+      { title:'📊 自摸率', key:'zimoRate', label:'%', desc:'自摸÷參與圈數', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.zimo||0)/getCircles(st) : 0,
+        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'✋ 胡牌王', key:'hu', label:'次', desc:'胡牌次數最多', higher:true, format: v=>`${v}次` },
+      { title:'📊 胡牌率', key:'huRate', label:'%', desc:'胡牌÷參與圈數', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.hu||0)/getCircles(st) : 0,
+        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'💥 放槍王', key:'fang', label:'次', desc:'放槍次數最多', higher:true, format: v=>`${v}次` },
+      { title:'📊 放槍率', key:'fangRate', label:'%', desc:'放槍÷參與圈數', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.fang||0)/getCircles(st) : 0,
+        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'🔥 最常連莊', key:'maxStreak', label:'連', desc:'最高連莊紀錄', higher:true, format: v=>`${v}連` },
+    ];
+
+    html += `<div class="sec" style="margin-top:1rem">🏆 排行榜 <span style="font-size:11px;font-weight:400;color:var(--muted)">（門檻：2將或8圈以上）</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;margin-bottom:14px">`;
+
+    rankings.forEach(r=>{
+      const sorted = [...qualified].map(([name,st])=>({
+        name,
+        val: r.getValue ? r.getValue(st) : (st[r.key]||0)
+      })).sort((a,b)=> r.higher ? b.val-a.val : a.val-b.val)
+        .filter(x=>x.val>0);
+
+      const top3 = [];
+      let lastVal = null, lastRank = 0;
+      sorted.forEach(x=>{
+        if(top3.length>=3 && x.val!==lastVal) return;
+        if(x.val!==lastVal){ lastRank++; lastVal=x.val; }
+        if(lastRank>3) return;
+        top3.push({...x, rank:lastRank});
+      });
+
+      const medals = ['🥇','🥈','🥉'];
+      const rows = top3.map(x=>
+        `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px dashed var(--border);font-size:13px">
+          <span>${medals[x.rank-1]} ${x.name}</span>
+          <span style="font-weight:800;font-family:'Nunito',sans-serif">${r.format(x.val)}</span>
+        </div>`
+      ).join('');
+
+      html += `<div class="card" style="margin-bottom:0;padding:12px">
+        <div style="font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px">${r.title}</div>
+        ${rows||'<div style="font-size:12px;color:var(--muted)">資料不足</div>'}
+      </div>`;
+    });
+    html += `</div>`;
+  }
 
   // 本月場次列表
   html += `<div class="sec" style="margin-top:1rem">📋 本月場次</div><div class="card" style="padding:0 1rem">`;
