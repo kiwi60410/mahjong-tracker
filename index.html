@@ -1098,7 +1098,7 @@ window.renderStats = function(){
           <div class="stat-item"><div class="stat-item-val" style="color:var(--green-dark)">${st.zimo}</div><div class="stat-item-label">自摸</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--blue-dark)">${st.hu}</div><div class="stat-item-label">胡牌</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--red-dark)">${st.fang}</div><div class="stat-item-label">放槍</div></div>
-          <div class="stat-item"><div class="stat-item-val" style="color:var(--muted)">${st.beZimo||0}</div><div class="stat-item-label">被自摸</div></div>
+          <div class="stat-item"><div class="stat-item-val" style="color:#888">${st.beZimo||0}</div><div class="stat-item-label">被自摸*</div></div>
         </div>
         <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> <span style="color:var(--muted);font-size:12px">${participationText}</span></div>
       </div>`;
@@ -1121,17 +1121,17 @@ window.renderStats = function(){
 
     const rankings = [
       { title:'🀄 自摸王', key:'zimo', higher:true, format: v=>`${v}次` },
-      { title:'📊 自摸率', higher:true,
-        getValue: st=> getCircles(st)>0 ? Math.min((st.zimo||0)/getCircles(st),1) : 0,
-        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'📊 自摸均圈', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.zimo||0)/getCircles(st) : 0,
+        format: v=>`${v.toFixed(2)}次/圈` },
       { title:'✋ 胡牌王', key:'hu', higher:true, format: v=>`${v}次` },
-      { title:'📊 胡牌率', higher:true,
-        getValue: st=> getCircles(st)>0 ? Math.min((st.hu||0)/getCircles(st),1) : 0,
-        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'📊 胡牌均圈', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.hu||0)/getCircles(st) : 0,
+        format: v=>`${v.toFixed(2)}次/圈` },
       { title:'💥 放槍王', key:'fang', higher:true, format: v=>`${v}次` },
-      { title:'📊 放槍率', higher:true,
-        getValue: st=> getCircles(st)>0 ? Math.min((st.fang||0)/getCircles(st),1) : 0,
-        format: v=>`${(v*100).toFixed(1)}%` },
+      { title:'📊 放槍均圈', higher:true,
+        getValue: st=> getCircles(st)>0 ? (st.fang||0)/getCircles(st) : 0,
+        format: v=>`${v.toFixed(2)}次/圈` },
       { title:'🔥 最常連莊', key:'maxStreak', higher:true, format: v=>`${v}連` },
     ];
 
