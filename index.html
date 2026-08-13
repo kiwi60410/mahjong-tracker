@@ -990,9 +990,12 @@ window.renderStats = function(){
 
   // 累計統計
   const totals = {};
+  let debugBeZimo = 0;
   sessions.forEach(s=>{
     const logs = s.logs ? Object.values(s.logs) : [];
     const sortedLogs = s.logs ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts) : [];
+    // debug
+    logs.forEach(l=>{ if(l.type==='zimo'&&l.beZimo) debugBeZimo++; });
     const isValid = name => name && name !== 'undefined' && name.trim() !== '';
     const hasSub = sortedLogs.some(l=>l.type==='sub');
     const dealerCounts = calcDealerCount(s.members||[], sortedLogs);
@@ -1059,6 +1062,7 @@ window.renderStats = function(){
   });
 
   const el = document.getElementById('stats-content');
+  console.log(`[debug] sessions:${sessions.length} beZimoLogs:${debugBeZimo} totals:${JSON.stringify(Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,v.beZimo])))}`);
 
   // 月份/日期總覽
   const totalLogs = sessions.reduce((s,sess)=>s+(sess.logs?Object.values(sess.logs).length:0),0);
