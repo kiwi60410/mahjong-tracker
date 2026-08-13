@@ -1101,7 +1101,7 @@ window.renderStats = function(){
           <div class="stat-item"><div class="stat-item-val" style="color:var(--green-dark)">${st.zimo}</div><div class="stat-item-label">自摸</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--blue-dark)">${st.hu}</div><div class="stat-item-label">胡牌</div></div>
           <div class="stat-item"><div class="stat-item-val" style="color:var(--red-dark)">${st.fang}</div><div class="stat-item-label">放槍</div></div>
-          <div class="stat-item"><div class="stat-item-val" style="color:#888">${st.beZimo||0}</div><div class="stat-item-label">被自摸*</div></div>
+          <div class="stat-item"><div class="stat-item-val" style="color:#888">${st.beZimo||0}</div><div class="stat-item-label">被自摸</div></div>
         </div>
         <div class="stat-rate"><span class="chip ${cls}" style="padding:2px 8px">${wins}勝 ${st.fang}槍</span> <span style="color:var(--muted);font-size:12px">${participationText}</span></div>
       </div>`;
@@ -1136,6 +1136,7 @@ window.renderStats = function(){
         getValue: st=> getCircles(st)>0 ? (st.fang||0)/getCircles(st) : 0,
         format: v=>`${v.toFixed(2)}次/圈` },
       { title:'🔥 最常連莊', key:'maxStreak', higher:true, format: v=>`${v}連` },
+      { title:'🫠 被摸爛', key:'beZimo', higher:true, format: v=>`${v}次` },
     ];
 
     html += `<div class="sec" style="margin-top:1rem">🏆 排行榜 <span style="font-size:11px;font-weight:400;color:var(--muted)">（門檻：2將或8圈以上）</span></div>
