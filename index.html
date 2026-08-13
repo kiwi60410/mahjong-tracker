@@ -1035,8 +1035,11 @@ window.renderStats = function(){
       if(!totals[log.player]) totals[log.player]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
       if(log.type==='zimo'){
         totals[log.player].zimo++;
-        // 從 log.beZimo 讀取被自摸的人（新格式）
-        const beZimoList = Array.isArray(log.beZimo) ? log.beZimo : [];
+        // Firebase 可能把陣列存成物件 {0:'A', 1:'B'}，需要轉回陣列
+        const beZimoRaw = log.beZimo;
+        const beZimoList = Array.isArray(beZimoRaw)
+          ? beZimoRaw
+          : (beZimoRaw && typeof beZimoRaw==='object' ? Object.values(beZimoRaw) : []);
         beZimoList.forEach(name=>{
           if(!isValid(name)) return;
           if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
