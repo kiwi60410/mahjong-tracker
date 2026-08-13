@@ -990,12 +990,9 @@ window.renderStats = function(){
 
   // 累計統計
   const totals = {};
-  let debugBeZimo = 0;
   sessions.forEach(s=>{
     const logs = s.logs ? Object.values(s.logs) : [];
     const sortedLogs = s.logs ? Object.entries(s.logs).map(([id,v])=>({id,...v})).sort((a,b)=>a.ts-b.ts) : [];
-    // debug
-    logs.forEach(l=>{ if(l.type==='zimo'&&l.beZimo) debugBeZimo++; });
     const isValid = name => name && name !== 'undefined' && name.trim() !== '';
     const hasSub = sortedLogs.some(l=>l.type==='sub');
     const dealerCounts = calcDealerCount(s.members||[], sortedLogs);
@@ -1008,7 +1005,7 @@ window.renderStats = function(){
     // 以個人為單位判斷：沒被換過的人算1將，被換過的人算圈數
     (s.members||[]).forEach(name=>{
       if(!name || name==='undefined') return;
-      if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+      if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
       if(!swapped.has(name)){
         // 全程在場，記 1將
         totals[name].sessions++;
@@ -1019,14 +1016,14 @@ window.renderStats = function(){
     Object.entries(dealerCounts).forEach(([name,cnt])=>{
       if(!isValid(name)) return;
       if(swapped.has(name)){
-        if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+        if(!totals[name]) totals[name]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
         totals[name].dealerCount=(totals[name].dealerCount||0)+cnt;
       }
     });
     // 確保換入的人有 entry
     sortedLogs.filter(l=>l.type==='sub').forEach(log=>{
       if(isValid(log.inPlayer) && !totals[log.inPlayer])
-        totals[log.inPlayer]={zimo:0,hu:0,fang:0,sessions:0,dealerCount:0};
+        totals[log.inPlayer]={zimo:0,hu:0,fang:0,beZimo:0,sessions:0,dealerCount:0,maxStreak:0};
     });
 
     // 取得這場座位（用於被自摸計算）
@@ -1062,7 +1059,6 @@ window.renderStats = function(){
   });
 
   const el = document.getElementById('stats-content');
-  console.log(`[debug] sessions:${sessions.length} beZimoLogs:${debugBeZimo} totals:${JSON.stringify(Object.fromEntries(Object.entries(totals).map(([k,v])=>[k,v.beZimo])))}`);
 
   // 月份/日期總覽
   const totalLogs = sessions.reduce((s,sess)=>s+(sess.logs?Object.values(sess.logs).length:0),0);
